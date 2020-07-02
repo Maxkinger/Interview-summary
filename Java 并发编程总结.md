@@ -20,7 +20,26 @@
 
 * object.notify 线程获取到 object 锁，通知被 object wait 阻塞的线程，然后释放掉锁资源。具体唤醒哪个线程是随机的，notifyAll 可以唤醒所有因为 wait 被阻塞的线程。
 
-* 
+* thread.interrupt 仅仅改变线程地 interrupt 标志位，不会立即停止线程执行。如果线程处于阻塞状态，sleep/join/wait，那么会抛出 InterruptedException
+
+* thread.isInterrupted 是否被中断，不会重置标志位
+
+  ```java
+  public boolean isInterrupted() {
+     		// false 不重置标志位
+          return isInterrupted(false);
+      }
+  ```
+
+* Thread.inerrupted 调用者线程是否被中断，重置标志位
+
+  ```java
+  public static boolean interrupted() {
+          return currentThread().isInterrupted(true);
+      }
+  ```
+
+  
 
 #### ThreadLocal
 
@@ -41,10 +60,6 @@ CAS 需要三个基本操作数，变量的内存地址 v，旧的预期值 A，
     }
 ```
 
-什么是unsafe呢？Java语言不像C，C++那样可以直接访问底层操作系统，但是JVM为我们提供了一个后门，这个后门就是unsafe。unsafe为我们提供了硬件级别的原子操作。Java 中的 **CAS 原子操作的实现就依靠 Unsafe 类**。
-
-至于valueOffset对象，是通过unsafe.objectFieldOffset方法得到，所代表的是AtomicInteger对象value成员变量在内存中的偏移量。我们可以简单地把valueOffset理解为value变量的内存地址。
-
 旧的期望值加了 volatile 关键字，得到期望值后，在某个线程要更改变量值之前，将期望值和当前值进行比较，如果不相等则更改失败，该线程进入自旋状态，不断循环尝试 CAS 操作，直到操作成功。
 
 * ABA 问题
@@ -52,6 +67,30 @@ CAS 需要三个基本操作数，变量的内存地址 v，旧的预期值 A，
   某个变量值 A->B->A ，当多个线程同时修改该变量，某个线程阻塞的情况下，可能会出现错误。
 
   加版本号解决 ABA 问题。**AtomicStampedReference** 类实现了版本号的 CAS。
+
+#### Unsafe 类
+
+Java 语言不像 C，C++ 那样可以直接访问底层操作系统，但是 JVM 为我们提供了一个后门，这个后门就是unsafe。unsafe 为我们提供了硬件级别的原子操作。Java 中的 **CAS 原子操作的实现就依靠 Unsafe 类**。
+
+上述的 valueOffset 对象，是通过 unsafe.objectFieldOffset 方法得到，所代表的是 AtomicInteger 对象 value 成员变量在内存中的偏移量。我们可以简单地把 valueOffset 理解为 value 变量的内存地址。
+
+Unsafe 类不能直接用 new 创建，构造函数私有。
+
+```java
+@CallerSensitive
+    public static Unsafe getUnsafe() {
+        Class var0 = Reflection.getCallerClass();
+        if (!VM.isSystemDomainLoader(var0.getClassLoader())) {
+            throw new SecurityException("Unsafe");
+        } else {
+            return theUnsafe;
+        }
+    }
+```
+
+getUnsafe() 得到的实例，只能被 BootStrapClassLoader 类加载器加载，而不能被 AppClassLoader 加载。所以不能直接在代码中使用 getUnsafe 来获取 Unsafe 实例，但是可以通过反射绕过此机制来创建 Unsafe。
+
+
 
 
 
