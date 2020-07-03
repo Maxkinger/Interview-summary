@@ -47,6 +47,24 @@ ThreadLocal
 
 
 
+#### 各种锁的分类
+
+| 锁的分类   | 描述 |
+| ---------- | ---- |
+| 悲观锁     |      |
+| 乐观锁     |      |
+| 公平锁     |      |
+| 非公平锁   |      |
+| 独占锁     |      |
+| 共享锁     |      |
+| 可重入锁   |      |
+| 非可重入锁 |      |
+| 自旋锁     |      |
+
+
+
+
+
 #### CAS  机制
 
 CAS 是一种无锁编程的并发实现。JUC 的 Atomic 包 和 Lock 锁底层均是该机制，1.6 以后 sychronize 关键字在升级为重量级锁之前也是使用 CAS。
@@ -62,11 +80,15 @@ CAS 需要三个基本操作数，变量的内存地址 v，旧的预期值 A，
 
 旧的期望值加了 volatile 关键字，得到期望值后，在某个线程要更改变量值之前，将期望值和当前值进行比较，如果不相等则更改失败，该线程进入自旋状态，不断循环尝试 CAS 操作，直到操作成功。
 
-* ABA 问题
+##### ABA 问题
 
-  某个变量值 A->B->A ，当多个线程同时修改该变量，某个线程阻塞的情况下，可能会出现错误。
+某个变量值 A->B->A ，当多个线程同时修改该变量，某个线程阻塞的情况下，可能会出现错误。
 
-  加版本号解决 ABA 问题。**AtomicStampedReference** 类实现了版本号的 CAS。
+加版本号解决 ABA 问题。**AtomicStampedReference** 类实现了版本号的 CAS。
+
+#####  场景
+
+CAS 属于乐观锁，乐观地认为程序地并发量不大，一般不会造成数据修改冲突，适用于并发量不大的业务场景。
 
 #### Unsafe 类
 
@@ -90,7 +112,49 @@ Unsafe 类不能直接用 new 创建，构造函数私有。
 
 getUnsafe() 得到的实例，只能被 BootStrapClassLoader 类加载器加载，而不能被 AppClassLoader 加载。所以不能直接在代码中使用 getUnsafe 来获取 Unsafe 实例，但是可以通过反射绕过此机制来创建 Unsafe。
 
+#### 伪共享
 
+CPU 中的缓存行大小一般是 2 的幂次方字节数，从主存中加载数据到缓存行中时，是一次加载一整个缓存行的大小。所以缓存行中不只有单个变量而是多个变量。当多个线程同时修改这多个变量时，实际上，某一时刻也只有一个线程能操作缓存行，相比于将多个变量分别放入到不同的缓存行，效率更低。体现了程序运行的**局部性原则**。
+
+##### 如何避免伪共享？
+
+* JDK8 以前通过字节填充来避免伪共享。
+
+  ```java
+  public final static class FilledLong {
+          public volatile long value = 0L;
+          public long p1,p2,p3,p4p5,p6; // 填充
+      }
+  ```
+
+* JDK8 提供了 sun.misc.Contended 注解
+
+  ```java
+  @sun.misc.Contended
+  public final static class FilledLong {
+  	public volatile long value = 0L;
+  }
+  ```
+
+  可以修饰类，也可以修饰变量。
+
+  比如 Thread 类中：
+
+  ```java
+   /** The current seed for a ThreadLocalRandom */
+      @sun.misc.Contended("tlr")
+      long threadLocalRandomSeed;
+  
+      /** Probe hash value; nonzero if threadLocalRandomSeed initialized */
+      @sun.misc.Contended("tlr")
+      int threadLocalRandomProbe;
+  
+      /** Secondary seed isolated from public ThreadLocalRandom sequence */
+      @sun.misc.Contended("tlr")
+      int threadLocalRandomSecondarySeed;
+  ```
+
+  
 
 
 
