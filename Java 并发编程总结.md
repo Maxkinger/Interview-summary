@@ -39,7 +39,6 @@
       }
   ```
 
-  
 
 #### ThreadLocal
 
@@ -49,19 +48,25 @@ ThreadLocal
 
 #### 各种锁的分类
 
-| 锁的分类   | 描述 |
-| ---------- | ---- |
-| 悲观锁     |      |
-| 乐观锁     |      |
-| 公平锁     |      |
-| 非公平锁   |      |
-| 独占锁     |      |
-| 共享锁     |      |
-| 可重入锁   |      |
-| 非可重入锁 |      |
-| 自旋锁     |      |
+| 锁的分类   | 描述                                                         |
+| ---------- | ------------------------------------------------------------ |
+| 悲观锁     | 悲观地认为程序并发量很大，很容易产生数据修改冲突。比如 sychronized |
+| 乐观锁     | 乐观地认为程序并发量并不大，不容易产生数据冲突，比如 CAS     |
+| 公平锁     | 多线程竞争锁时，线程按照顺序排队                             |
+| 非公平锁   | 多线程竞争锁时，线程没有顺序                                 |
+| 独占锁     | 只能由被单个线程占有                                         |
+| 共享锁     | 能被多个线程同时占有                                         |
+| 可重入锁   | 当该线程获取到锁后，下一个同步语句不需要重新获取这个锁，比如 sychronized |
+| 非可重入锁 | 当该线程获取到锁后，下一个同步语句需要重新获取这个锁         |
+| 自旋锁     | 线程在竞争获取锁，没有获取到就一直进行循环尝试获取           |
 
 
+
+#### synchronized 关键字
+
+
+
+#### volatile 关键字
 
 
 
@@ -154,9 +159,119 @@ CPU 中的缓存行大小一般是 2 的幂次方字节数，从主存中加载�
       int threadLocalRandomSecondarySeed;
   ```
 
-  
+
+#### JUC 之 ThreadLocalRandom 
+
+ThreadLocalRandom 是 JDK 7 在 JUC 包下新增的随机数生成器，它弥补了 Random 类在多线程下的缺陷。
+
+Random 类根据种子生成随机数 ，所以在多线程情况下，每个线程有可能获取到相同种子，从而每个线程得到相同的随机数。
+
+Random 类中使用了 AtomicLong 类型的原子性 seed 来避免这种情况，如下：
+
+```java
+protected int next(int bits) {
+        long oldseed, nextseed;
+        AtomicLong seed = this.seed;
+        do {
+            oldseed = seed.get();
+            nextseed = (oldseed * multiplier + addend) & mask;
+        } while (!seed.compareAndSet(oldseed, nextseed));
+        return (int)(nextseed >>> (48 - bits));
+    }
+```
+
+但是在并发量很大的情况下，会造成过多线程处于自旋重试状态，降低并发性能，因此有 ThreadLocalRandom 来解决这个问题。
+
+```mermaid
+classDiagram
+	Random <| -- ThreadLocalRandom
+	calss ThreadLocalRandom
+	ThreadLocalRandom : -SEED: long
+	ThreadLocalRandom : -PROBE:	long
+	ThreadLocalRandom : -SECONDARY: long
+	ThreadLocalRandom : instance: ThreadLocalRandom
+	ThreadLocalRandom : -probeGenerator: AtomicInteger
+	ThreadLocalRandom : -seeder: AtomicLong
+	ThreadLocalRandom : +nextInt(bound:int): int
+	ThreadLocalRandom : nextSeed(): long
+	ThreadLocalRandom : +current(): ThreadLocalRandom
+	ThreadLocalRandom : localInit(): void
+	Thread <-- ThreadLocalRandom
+	class Thread {
+		threadLocalRandomSeed: long
+		threadLocalRandomProbe: int
+		threadLocalRandomSecondarySeed: int
+		+currentThread(): Thread
+	}
+
+	
+
+```
+
+如图所示，ThreadLocalRandom 和 ThreadLocal 类似，本质上都是工具类。ThreadLocalRandom 可以看成一个饿汉式单例。ThreadLocalRandom 的 current() 静态方法如下：
+
+```java
+public static ThreadLocalRandom current() {
+        if (UNSAFE.getInt(Thread.currentThread(), PROBE) == 0)
+            localInit();
+        return instance;
+    }
+```
+
+在 localInit 方法中，初始化当前调用者线程的三个 threadLocalRandom 变量：
+
+```java
+static final void localInit() {
+        int p = probeGenerator.addAndGet(PROBE_INCREMENT);
+        int probe = (p == 0) ? 1 : p; // skip 0
+        long seed = mix64(seeder.getAndAdd(SEEDER_INCREMENT));
+        Thread t = Thread.currentThread();
+        UNSAFE.putLong(t, SEED, seed);
+        UNSAFE.putInt(t, PROBE, probe);
+    }
+```
+
+这里的 probeGenerator 和 seeder 是原子类，因为在多个线程同时初始化的时候，必须保证**每个线程的种子不同**。
+
+再看 nextInt(int bound) 方法：
+
+```java
+public int nextInt(int bound) {
+        if (bound <= 0)
+            throw new IllegalArgumentException(BadBound);
+        int r = mix32(nextSeed());
+        int m = bound - 1;
+        if ((bound & m) == 0) // power of two
+            r &= m;
+        else { // reject over-represented candidates
+            for (int u = r >>> 1;
+                 u + m - (r = u % bound) < 0;
+                 u = mix32(nextSeed()) >>> 1)
+                ;
+        }
+        return r;
+    }
+
+final long nextSeed() {
+        Thread t; long r; // read and update per-thread seed
+        UNSAFE.putLong(t = Thread.currentThread(), SEED,
+                       r = UNSAFE.getLong(t, SEED) + GAMMA);
+        return r;
+    }
+```
+
+这些方法都是与线程无关的通用算法，因为种子是保存在线程内部的，所以这样也是线程安全的。
+
+总而言之，**ThreadLocalRandom 就是帮助每个线程生成不同种子放在各个线程内部，这样线程产生随机数的时候可以互不影响。**
 
 
 
 
 
+
+
+
+
+
+
+ 
