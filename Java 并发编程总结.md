@@ -12,15 +12,40 @@
 
 * thread.join
 
-  是对 object.wait 方法的封装，会让调用线程获取到该 thread 对象锁，然后调用 thread.wait 使当前线程阻塞。在 thread 运行结束以后，会在 exit() 中调用 notifyAll() 唤醒调用者线程
+  是对 object.wait 方法的封装，会让调用线程获取到该 thread 对象锁，然后调用 thread.wait 使当前线程阻塞。在 thread 运行结束以后，会在 exit() 中调用 notifyAll() 唤醒调用者线程。
+
+  ```java
+  public final synchronized void join(long millis) throws InterruptedException {
+          long base = System.currentTimeMillis();
+          long now = 0;
+          if (millis < 0) {
+              throw new IllegalArgumentException("timeout value is negative");
+          }
+          if (millis == 0) {
+              while (isAlive()) {
+                  wait(0);
+              }
+          } else {
+              // 这里使用 while 循环 wait 是防止线程被 interrupt，导致提前被唤醒，上面的 while 同理
+              while (isAlive()) {
+                  long delay = millis - now;
+                  if (delay <= 0) {
+                      break;
+                  }
+                  wait(delay);
+                  now = System.currentTimeMillis() - base;
+              }
+          }
+      }
+  ```
 
 * Thread.yield 静态方法，出让当前线程的时间片使用权，让调度器进行下一轮调度。不会阻塞当前线程。
 
-* object.wait 线程获取到 object 锁，wait 进入等待阻塞，释放掉锁资源
+* object.wait 线程获取到 object 锁，wait 进入阻塞状态，释放掉锁资源
 
 * object.notify 线程获取到 object 锁，通知被 object wait 阻塞的线程，然后释放掉锁资源。具体唤醒哪个线程是随机的，notifyAll 可以唤醒所有因为 wait 被阻塞的线程。
 
-* thread.interrupt 仅仅改变线程地 interrupt 标志位，不会立即停止线程执行。如果线程处于阻塞状态，sleep/join/wait，那么会抛出 InterruptedException
+* thread.interrupt 仅仅改变线程地 interrupt 标志位，不会立即停止线程执行。如果线程处于阻塞状态 sleep/join/wait，那么会抛出 InterruptedException
 
 * thread.isInterrupted 是否被中断，不会重置标志位
 
@@ -54,7 +79,7 @@ ThreadLocal
 | 乐观锁     | 乐观地认为程序并发量并不大，不容易产生数据冲突，比如 CAS     |
 | 公平锁     | 多线程竞争锁时，线程按照顺序排队                             |
 | 非公平锁   | 多线程竞争锁时，线程没有顺序                                 |
-| 独占锁     | 只能由被单个线程占有                                         |
+| 独占锁     | 只能由被单个线程占有，比如 synchronized、ReentrantLock       |
 | 共享锁     | 能被多个线程同时占有                                         |
 | 可重入锁   | 当该线程获取到锁后，下一个同步语句不需要重新获取这个锁，比如 sychronized |
 | 非可重入锁 | 当该线程获取到锁后，下一个同步语句需要重新获取这个锁         |
@@ -115,7 +140,9 @@ Unsafe 类不能直接用 new 创建，构造函数私有。
     }
 ```
 
-getUnsafe() 得到的实例，只能被 BootStrapClassLoader 类加载器加载，而不能被 AppClassLoader 加载。所以不能直接在代码中使用 getUnsafe 来获取 Unsafe 实例，但是可以通过反射绕过此机制来创建 Unsafe。
+getUnsafe() 得到的实例，只能被 BootStrapClassLoader 类加载器加载，而不能被 AppClassLoader 加载。所以不能直接在代码中使用 getUnsafe 来获取 Unsafe 实例，但是可以通过**反射**绕过此机制来创建 Unsafe。
+
+**所有在 JAVA_HOME/jre/lib 中的类都会由 BootStrap 来加载**。
 
 #### 伪共享
 
@@ -264,14 +291,76 @@ final long nextSeed() {
 
 总而言之，**ThreadLocalRandom 就是帮助每个线程生成不同种子放在各个线程内部，这样线程产生随机数的时候可以互不影响。**
 
+#### JUC 之 Atomic 包
 
+JUC 包中提供了一系列的原子性操作类，都是使用非阻塞的 CAS 算法来实现的。要注意，**CAS 算法只能满足原子性，不能满足可见性和有序性，所以在如 AtomicInteger 等类中，value 是加了 volatile 关键字的，用来满足可见性和有序性。**
 
+以 AtomicLong 为例，
 
+```java
+public class AtomicLong extends Number implements java.io.Serializable {
+    private static final long serialVersionUID = 1927816293512124184L;
+    // 获取 unsafe 实例
+    private static final Unsafe unsafe = Unsafe.getUnsafe();
+    // 存放值 value 的偏移量
+    private static final long valueOffset;
+    // 是否 JVM 是否支持 Long 类型无锁 CAS
+   	static final boolean VM_SUPPORTS_LONG_CAS = VMSupportsCS8();
+    private static native boolean VMSupportsCS8();
 
+    static {
+        try {
+            // 获取 value 在该类中的属性的偏移量
+            valueOffset = unsafe.objectFieldOffset
+                (AtomicLong.class.getDeclaredField("value"));
+        } catch (Exception ex) { throw new Error(ex); }
+    }
+    
+    // 使用 volatile 关键字保证可见性和有序性
+    private volatile long value;
 
+    /**
+     * Creates a new AtomicLong with the given initial value.
+     *
+     * @param initialValue the initial value
+     */
+    public AtomicLong(long initialValue) {
+        value = initialValue;
+    }
 
+    /**
+     * Creates a new AtomicLong with initial value {@code 0}.
+     */
+    public AtomicLong() {
+    }
+    ...
+}
+```
 
+再看递增操作：
 
+```java
+    public final long incrementAndGet() {
+        return unsafe.getAndAddLong(this, valueOffset, 1L) + 1L;
+    }
+```
 
+Unsafe 中：
 
- 
+```java
+public final long getAndAddLong(Object var1, long var2, long var4) {
+        long var6;
+        do {
+            var6 = this.getLongVolatile(var1, var2);
+        } while(!this.compareAndSwapLong(var1, var2, var6, var6 + var4));// compareAndSwapLong 是 native 方法
+        return var6;
+    }
+```
+
+上面的代码很好懂。
+
+并发量较低的情况下，CAS 优于 synchronized 关键字。但是在并发量高的情况下，由于大量线程的自旋，会导致白白浪费 CPU 资源，因此 JDK 8 新增了一个 LongAdder 类来克服高并发情况下 AtomicLong 的缺点。
+
+##### LongAdder
+
+LongAdder 的基本思想是
