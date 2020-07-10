@@ -213,21 +213,23 @@ protected int next(int bits) {
 classDiagram
 	Random <| -- ThreadLocalRandom
 	calss ThreadLocalRandom
-	ThreadLocalRandom : -SEED: long
-	ThreadLocalRandom : -PROBE:	long
-	ThreadLocalRandom : -SECONDARY: long
-	ThreadLocalRandom : instance: ThreadLocalRandom
-	ThreadLocalRandom : -probeGenerator: AtomicInteger
-	ThreadLocalRandom : -seeder: AtomicLong
-	ThreadLocalRandom : +nextInt(bound:int): int
-	ThreadLocalRandom : nextSeed(): long
-	ThreadLocalRandom : +current(): ThreadLocalRandom
-	ThreadLocalRandom : localInit(): void
+	class ThreadLocalRandom {
+		-SEED: long
+	 	-PROBE:	long
+		-SECONDARY: long
+	 	#instance: ThreadLocalRandom
+	 	-probeGenerator: AtomicInteger
+		-seeder: AtomicLong
+	 	+nextInt(bound:int): int
+		#nextSeed(): long
+		+current(): ThreadLocalRandom
+		#localInit(): void	
+	}
 	Thread <-- ThreadLocalRandom
 	class Thread {
-		threadLocalRandomSeed: long
-		threadLocalRandomProbe: int
-		threadLocalRandomSecondarySeed: int
+		#threadLocalRandomSeed: long
+		#threadLocalRandomProbe: int
+		#threadLocalRandomSecondarySeed: int
 		+currentThread(): Thread
 	}
 
@@ -363,4 +365,188 @@ public final long getAndAddLong(Object var1, long var2, long var4) {
 
 ##### LongAdder
 
-LongAdder 的基本思想是
+LongAdder 的基本思想是，既然多个线程同时更新一个原子变量会造成性能浪费，那就让同时让多个线程同时分组，每组更新不同的线程，这样就在一定程度上避免了性能浪费。
+
+```mermaid
+classDiagram
+	Striped64 <|-- LongAdder
+	Serializable <|..LongAdder
+	class Striped64 {
+		#base:volatile long
+		#cellsBusy: volatile int
+		#cells: volatile Cell[]
+	}
+	
+
+```
+
+
+
+cells 就是要更新的数组，大小为 2 的幂次。
+
+cellsBusy 是数组扩容或创建时的自旋锁，只有 0 和 1 两种状态。
+
+先看 Cell 类型：
+
+```java
+@sun.misc.Contended static final class Cell {
+        volatile long value;
+        Cell(long x) { value = x; }
+        final boolean cas(long cmp, long val) {
+            return UNSAFE.compareAndSwapLong(this, valueOffset, cmp, val);
+        }
+
+        // Unsafe mechanics
+        private static final sun.misc.Unsafe UNSAFE;
+        private static final long valueOffset;
+        static {
+            try {
+                UNSAFE = sun.misc.Unsafe.getUnsafe();
+                Class<?> ak = Cell.class;
+                valueOffset = UNSAFE.objectFieldOffset
+                    (ak.getDeclaredField("value"));
+            } catch (Exception e) {
+                throw new Error(e);
+            }
+        }
+    }
+```
+
+Cell 类型相当于一个精简版的 AtomicLong ，注意它加了 @sun.misc.Contended 注解以解决数组元素伪共享的问题。
+
+重点看 LongAdder 类中的 add 方法：
+
+```java
+public void add(long x) {
+        Cell[] as; long b, v; int m; Cell a;
+        if ((as = cells) != null || !casBase(b = base, b + x)) { // 1
+            boolean uncontended = true;
+            if (as == null || (m = as.length - 1) < 0 || // 2
+                (a = as[getProbe() & m]) == null || // 3
+                !(uncontended = a.cas(v = a.value, v + x))) //4
+                longAccumulate(x, null, uncontended); // 5
+        }
+    }
+```
+
++ 代码 1：判断 cells 数组是否为空，如果为空的话，直接 cas 更新 base；如果 cas 操作失败，说明多个线程同时调用 add，那么需要初始化数组，即在 longAccumulate 中初始化。
+
++ 代码 2,3,4 合起来看，相当于获取当前线程应该访问的那个 cells 数组中的 Cell 元素，然后进行更新。
+
+  as[getProbe & m] 获取到 cells 数组中的那个值，然后代码 4 进行 cas 操作更新这个值。很明显，如果获取到的值是空，那么就需要初始化这个值，意味着数组需要扩容或者初始化；如果 cas 失败的话，意味着多线程竞争更新该值，为了不让线程白白自旋，可要考虑数组的扩容，因此进入 longAccumulate。
+
+看 longAccumulate 方法：
+
+```java
+final void longAccumulate(long x, LongBinaryOperator fn,
+                              boolean wasUncontended) {
+        int h;
+        if ((h = getProbe()) == 0) {
+            ThreadLocalRandom.current(); // getProbe() 其实就是在获取 ThreadLocalRandom 里面 threadLocalRandomProbe 的值
+            h = getProbe();
+            wasUncontended = true;
+        }
+        boolean collide = false;                // True if last slot nonempty
+        for (;;) {
+            Cell[] as; Cell a; int n; long v;
+            if ((as = cells) != null && (n = as.length) > 0) {
+                if ((a = as[(n - 1) & h]) == null) {
+                    if (cellsBusy == 0) {       //（1） 该线程对应的 cell 为空，数组增加这个 cell
+                        Cell r = new Cell(x);    
+                        if (cellsBusy == 0 && casCellsBusy()) {
+                            boolean created = false;
+                            try {               // Recheck under lock
+                                Cell[] rs; int m, j;
+                                if ((rs = cells) != null &&
+                                    (m = rs.length) > 0 &&
+                                    rs[j = (m - 1) & h] == null) {
+                                    rs[j] = r;
+                                    created = true;
+                                }
+                            } finally {
+                                cellsBusy = 0;
+                            }
+                            if (created)
+                                break;
+                            continue;           // Slot is now non-empty
+                        }
+                    }
+                    collide = false;
+                }
+                else if (!wasUncontended)       // CAS already known to fail
+                    wasUncontended = true;      // Continue after rehash
+                //（2） 当前 cell 存在，进行 cas 操作
+                else if (a.cas(v = a.value, ((fn == null) ? v + x :
+                                             fn.applyAsLong(v, x))))
+                    break;
+                else if (n >= NCPU || cells != as) // (3) 元素个数大于 CPU 个数
+                    collide = false;            // At max size or stale
+                else if (!collide) // (4)
+                    collide = true;
+                else if (cellsBusy == 0 && casCellsBusy()) { // (5) 元素个数小于 CPU 个数，给数组扩容
+                    try {
+                        if (cells == as) {      // Expand table unless stale
+                            Cell[] rs = new Cell[n << 1];
+                            for (int i = 0; i < n; ++i)
+                                rs[i] = as[i];
+                            cells = rs;
+                        }
+                    } finally {
+                        cellsBusy = 0;
+                    }
+                    collide = false;
+                    continue;                   // Retry with expanded table
+                }
+                h = advanceProbe(h); // (6) rehash
+            }
+            // 可以
+            else if (cellsBusy == 0 && cells == as && casCellsBusy()) {
+                boolean init = false;
+                try {                           // Initialize table
+                    if (cells == as) {
+                        Cell[] rs = new Cell[2];
+                        rs[h & 1] = new Cell(x);
+                        cells = rs;
+                        init = true;
+                    }
+                } finally {
+                    cellsBusy = 0;
+                }
+                if (init)
+                    break;
+            }
+            else if (casBase(v = base, ((fn == null) ? v + x :
+                                        fn.applyAsLong(v, x))))
+                break;                          // Fall back on using base
+        }
+    }
+```
+
+cellsBusy 是一个标示，为 0 说明数组没有在初始化或者扩容，也没有新建 Cell 元素，为 1 则相反。
+
+数组初始化很好理解，如果 cells 为空就去初始化，同时 cellsBusy 标示置为 1 ，避免重复初始化。一个线程初始化数组，另一个线程就通过最外层的 for 循环自旋等待。
+
+线程 1 将数组初始化成功了以后，就 break 退出循环，其余线程开始竞争修改变量。
+
+注意，每个线程的 threadLocalRandomProbe 是不一样的，但是 probe & (n - 1) 的结果可能一样，多个线程的情况下更容易发生这个问题。实际上 probe 就是一个 hash 值，这里确定数组下标的方式，类似于 hashmap 。
+
+如果两个线程的 h = probe & (n - 1) 相同，即发生了 hash 碰撞，考虑一下两种情况：
+
++ 该 h 对应的 Cell 不为空
+
+  不为空，则两者同时竞争修改同一个 Cell ，只有一个线程能修改成功，通过代码（2）处的 a.cas 来确保原子性。另外一个线程走到其余分支条件。
+
+  代码 (3) 处，判断数组容量是否大于 CPU 个数，如果大于的话，说明数组容量有富余，不需要扩容，collide 置为 false，然后在代码 (5) 处 rehash，再循环。
+
+  如果数组容量小于 CPU 个数，那么数组容量不够，collide 置为 true，意味着数组需要扩容。但是不立马扩容，而是先 rehash 再尝试修改。如果 rehash 以后仍然 cas 失败，那么就进行数组扩容。
+
+  数组扩容可以把并发修改单个原子变量的性能压力分摊给了多个数组，而不会白白自旋浪费性能。
+
+  由上可知，对于多个线程同时修改同一个 cell ，**先 rehash，再考虑数组扩容**。
+
++ 该 h 对应的 Cell 为空
+
+  如果 cell 为空，那么先在代码 (1) 处新建 cell，同时将 cellsBusy 置为 1 。接下来的过程与上述相同。
+
+最后，为什么要用 cellsBusy 来标示？因为单纯对变量的 CAS 原子操作作用范围有限，对于数组的结构变化，需要这种方式来保证多线程间的同步。
+
