@@ -534,7 +534,7 @@ cellsBusy 是一个标示，为 0 说明数组没有在初始化或者扩容，�
 
 + 该 h 对应的 Cell 不为空
 
-  不为空，则两者同时竞争修改同一个 Cell ，只有一个线程能修改成功，通过代码（2）处的 a.cas 来确保原子性。另外一个线程走到其余分支条件。
+  不为空，则两者同时竞争修改同一个 cell ，只有一个线程能修改成功，通过代码（2）处的 a.cas 来确保原子性。另外一个线程走到其余分支条件。
 
   代码 (3) 处，判断数组容量是否大于 CPU 个数，如果大于的话，说明数组容量有富余，不需要扩容，collide 置为 false，然后在代码 (5) 处 rehash，再循环。
 
@@ -549,4 +549,59 @@ cellsBusy 是一个标示，为 0 说明数组没有在初始化或者扩容，�
   如果 cell 为空，那么先在代码 (1) 处新建 cell，同时将 cellsBusy 置为 1 。接下来的过程与上述相同。
 
 最后，为什么要用 cellsBusy 来标示？因为单纯对变量的 CAS 原子操作作用范围有限，对于数组的结构变化，需要这种方式来保证多线程间的同步。
+
+##### LongAccumulator
+
+LongAdder 是 LongAccumulator 类的一个特例，LongAccumulator 比 LongAdder 更强大。LongAccumulator 可以为累加器提供非 0 的初始值，还可以制定累加规则。比如 LongAccumulator 的 accumulate 函数：
+
+```java
+public void accumulate(long x) {
+        Cell[] as; long b, v, r; int m; Cell a;
+        if ((as = cells) != null ||
+            (r = function.applyAsLong(b = base, x)) != b && !casBase(b, r)) {
+            boolean uncontended = true;
+            if (as == null || (m = as.length - 1) < 0 ||
+                (a = as[getProbe() & m]) == null ||
+                !(uncontended =
+                  (r = function.applyAsLong(v = a.value, x)) == v || // 注意这里
+                  a.cas(v, r)))
+                longAccumulate(x, function, uncontended);
+        }
+    }
+```
+
+注意处的，`function.applyAsLong(v = a.value, x)` 就是它和 LongAdder 不一样的地方。这个 function 是什么呢？
+
+```java
+public class LongAccumulator extends Striped64 implements Serializable {    
+	private final LongBinaryOperator function;
+    private final long identity; // identitiy 就是可以自定义的初始值
+    public LongAccumulator(LongBinaryOperator accumulatorFunction,
+                           long identity) {
+        this.function = accumulatorFunction;
+        base = this.identity = identity;
+    }
+    ...
+}
+```
+
+function 是 LongBinaryOperator 类型，如下：
+
+```java
+public interface LongBinaryOperator {
+
+    /**
+     * Applies this operator to the given operands.
+     *
+     * @param left the first operand
+     * @param right the second operand
+     * @return the operator result
+     */
+    long applyAsLong(long left, long right);
+}
+```
+
+所以，function 是一个二元运算符对象，applyAsLong 是可以自定义的二元运算符操作。
+
+#### JUC 之 CopyOnWriteList
 
