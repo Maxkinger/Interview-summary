@@ -603,5 +603,218 @@ public interface LongBinaryOperator {
 
 所以，function 是一个二元运算符对象，applyAsLong 是可以自定义的二元运算符操作。
 
-#### JUC 之 CopyOnWriteList
+#### JUC 之 CopyOnWriteArrayList
+
+JUC 中的并发 List 只有 CopyOnWriteArrayList，这是一个线程安全的 ArrayList，对其进行的修改操作都是在底层的一个复制的数组（快照）上进行的，也就是使用了**写时复制**策略。
+
+```mermaid
+classDiagram
+class CopyOnWriteArrayList {
+	#lock: ReentrantLock
+	-array: Object[]
+	+add(e:E): void
+	+size(): int
+	+set(index:int, element:E):E
+	+isEmpty():boolean
+	+remove(index:int): E
+	+iterator():Iterator<E>
+}
+```
+
+在 CopyOnWriteArrayList 中，array 数组用来存放具体对象， ReentrantLock 独占锁用来保证同时只有一个线程对 array 进行修改。array 是 volatile 关键字修饰的成员变量。
+
+下面来分析 CopyOnWriteArrayList 中的 add(E e) 函数
+
+```java
+public boolean add(E e) {
+        final ReentrantLock lock = this.lock;
+        lock.lock();//(1)
+        try {
+            Object[] elements = getArray();
+            int len = elements.length;
+            Object[] newElements = Arrays.copyOf(elements, len + 1); // (2)
+            newElements[len] = e;
+            setArray(newElements); // (3)
+            return true;
+        } finally {
+            lock.unlock();
+        }
+    }
+```
+
+首先在（1）处去获取独占锁，只有一个线程会获取到该锁，其余线程阻塞。获取到锁后，代码（2）复制原来的数组并扩容 + 1，然后将新的元素赋值到对应位置，然后（3）处将赋值新的 array 。这里因为加了锁，所以保证了操作的原子性。
+
+再分析 remove(int index) 函数
+
+```java
+public E remove(int index) {
+        final ReentrantLock lock = this.lock;
+        lock.lock();
+        try {
+            Object[] elements = getArray();
+            int len = elements.length;
+            E oldValue = get(elements, index);
+            int numMoved = len - index - 1;
+            if (numMoved == 0)
+                setArray(Arrays.copyOf(elements, len - 1));
+            else {
+                Object[] newElements = new Object[len - 1];
+                System.arraycopy(elements, 0, newElements, 0, index);
+                System.arraycopy(elements, index + 1, newElements, index,
+                                 numMoved);
+                setArray(newElements);
+            }
+            return oldValue;
+        } finally {
+            lock.unlock();
+        }
+    }
+```
+
+同样，使用 reentrantLock 进行加锁以保证操作的原子性。代码很好懂：
+
+* 如果删除的是最后一个元素，则直接 copy 前 n - 1 个元素组成的数组。
+* 如果删除的是中间的元素，那么首先创建一个 len - 1 长度的数组，然后复制 0 到 index-1 的元素到新数组，再赋值 index + 1 之后的元素。
+
+set(int index, E element) 函数也类似，先复制，再修改值，使用 lock 来确保原子性。注意，ArrayList 的 set 函数并没有使用写时复制的策略，而是直接赋值的。
+
+##### 弱一致性问题
+
+关于一致性的解释：https://en.wikipedia.org/wiki/Weak_consistency   https://zhuanlan.zhihu.com/p/67949045
+
+假如线程 A 在修改某个元素的值，在获取到值后，另一个线程 B 删除了其中一个元素，然后线程 A 再进行修改操作，这时线程 A 要修改的 array 已经和 B 删除元素后的 array 不一样了。这就是写时复制策略产生的弱一致性问题。
+
+参考 CopyOnWriteArrayList 的迭代器：
+
+```java
+ public Iterator<E> iterator() {
+        return new COWIterator<E>(getArray(), 0);
+    }
+
+static final class COWIterator<E> implements ListIterator<E> {
+        /** Snapshot of the array */
+        private final Object[] snapshot; // (1)
+        /** Index of element to be returned by subsequent call to next.  */
+        private int cursor;
+
+        private COWIterator(Object[] elements, int initialCursor) {
+            cursor = initialCursor;
+            snapshot = elements;
+        }
+
+        public boolean hasNext() {
+            return cursor < snapshot.length;
+        }
+
+        public boolean hasPrevious() {
+            return cursor > 0;
+        }
+
+        @SuppressWarnings("unchecked")
+        public E next() {
+            if (! hasNext())
+                throw new NoSuchElementException();
+            return (E) snapshot[cursor++];
+        }
+
+        @SuppressWarnings("unchecked")
+        public E previous() {
+            if (! hasPrevious())
+                throw new NoSuchElementException();
+            return (E) snapshot[--cursor];
+        }
+    	
+    /**
+         * Not supported. Always throws UnsupportedOperationException.
+         * @throws UnsupportedOperationException always; {@code remove}
+         *         is not supported by this iterator.
+         */
+        public void remove() {
+            throw new UnsupportedOperationException();
+        }
+
+        /**
+         * Not supported. Always throws UnsupportedOperationException.
+         * @throws UnsupportedOperationException always; {@code set}
+         *         is not supported by this iterator.
+         */
+        public void set(E e) {
+            throw new UnsupportedOperationException();
+        }
+
+        /**
+         * Not supported. Always throws UnsupportedOperationException.
+         * @throws UnsupportedOperationException always; {@code add}
+         *         is not supported by this iterator.
+         */
+        public void add(E e) {
+            throw new UnsupportedOperationException();
+        }
+    
+        @Override
+        public void forEachRemaining(Consumer<? super E> action) {
+            Objects.requireNonNull(action);
+            Object[] elements = snapshot;
+            final int size = elements.length;
+            for (int i = cursor; i < size; i++) {
+                @SuppressWarnings("unchecked") E e = (E) elements[i];
+                action.accept(e);
+            }
+            cursor = size;
+        }
+    }
+
+```
+
+代码（1）处，迭代器中指向的 array 就是原 list 中的一个快照。同时迭代器是不允许**增删改**操作的。这样，当迭代器在进行迭代的过程中，有其他线程修改了 array 的话，那么迭代器指向的还是原来的 array ，相当于两个线程在操作不同的数组。
+
+#### JUC 之 LockSupport
+
+LockSupport 是个工具类，它的主要作用是挂起和唤醒线程，是创建锁和其他同步类的基础。LockSupport 使用 Unsafe 实现。LockSupport 与每个使用它的线程都会关联一个许可证，用这个许可证来控制是否阻塞线程。下面介绍几个主要的方法。
+
+* park()
+
+  ```java
+  public static void park() {
+          UNSAFE.park(false, 0L);
+      }
+  ```
+
+  线程调用 park() 方法时，如果已经拿到了许可证，则会立即返回；如果没有许可证，则会被阻塞，默认情况下，线程没有许可证。类似 wait 等可以阻塞线程的方法，调用 park 方法最好也使用循环判断方式，防止提前唤醒。需要注意，因为调用 park 方法而被阻塞的线程，在被其他线程调用 thread.interrupt() 中断而返回的时候，并不会抛出 InterruptedException 异常。
+
+  park 方法还支持带有 blocker 参数的方法，如下
+
+  ```java
+  public static void park(Object blocker) {
+          Thread t = Thread.currentThread();
+          setBlocker(t, blocker);
+          UNSAFE.park(false, 0L);
+          setBlocker(t, null);
+      }
+  ```
+
+  线程被挂起时，会将这个 blocker 对象记录到线程内部，推荐使用 this 作为 blocker ，这样在使用诊断工具观察线程阻塞的时候，可以知道哪个类被阻塞了。
+
+* unpark(Thread thread)
+
+  ```java
+  public static void unpark(Thread thread) {
+          if (thread != null)
+              UNSAFE.unpark(thread);
+      }
+  ```
+
+  线程调用 unpark 后，会持有许可证。如果参数中的 thread 之前因为调用 park() 而被挂起，则会 thread 会被唤醒。
+
+  unpark 同样也有支持 blocker 方法。
+
+  
+
+​	
+
+
+
+
+
+
 
