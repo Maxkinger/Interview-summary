@@ -370,7 +370,7 @@ LongAdder 的基本思想是，既然多个线程同时更新一个原子变量�
 ```mermaid
 classDiagram
 	Striped64 <|-- LongAdder
-	Serializable <|..LongAdder
+	Serializable <|..LongAdder : Realization
 	class Striped64 {
 		#base:volatile long
 		#cellsBusy: volatile int
@@ -808,15 +808,63 @@ LockSupport 是个工具类，它的主要作用是挂起和唤醒线程，是�
 
   unpark 同样也有支持 blocker 方法。
 
-  
+#### JUC 之 AQS
 
-  
+AQS 即 AbstractQueuedSynchronizer，抽象同步队列，它是实现同步器的基础组件。并发包中的锁的底层就是使用 AQS 实现的。 
 
-​	
-
-
-
-
-
-
+```mermaid
+classDiagram
+	AbstractOwnableSynchronizer <|-- AbstractQueuedSynchronizer
+	AbstractQueuedSynchronizer <-- ConditionObject
+	Node <-- Node
+	Node <-- AbstractQueuedSynchronizer
+	class AbstractOwnableSynchronizer {
+		-Node exclusiveOwnerThread
+		#void setExclusiveOwnerThread(Thread thread) 
+		#Thread getExclusiveOwnerThread()
+	}
+	class ConditionObject {
+		-Node firstWaiter
+		-Node lastWaiter
+		+void signal()
+		+void signalAll()
+		+void await()
+	}
+	class Node {
+		#Node SHARED
+		#Node EXCLUSIVE
+		#int CANCELLED
+		#int SIGNAL
+		#int CONDITION
+		#int PROPAGATE
+		#int waitStatus
+		#Node prev
+		#Node next
+		#Thread thread
+		#Node nextWaiter
+		+boolean isShared()
+		+Node predecessor()
+	}
+	class AbstractQueuedSynchronizer {
+		-int state
+		-Node tail
+		-Node head
+		-Unsafe unsafe
+		-long stateOffset
+		-long headOffset
+		-long tailOffset
+		-long waitStatusOffset
+		-long nextOffset
+		#void acquire(int arg)
+		#boolean tryAcquire(int arg)
+		#void acquireShare(int arg)
+		#void acquireInterruptibly(int arg)
+		#boolean release(int arg)
+		#boolean releaseShared(int arg)
+		#boolean tryRelease(int arg)
+		#boolean tryReleaseShared(int arg)
+		
+	}
+	
+```
 
