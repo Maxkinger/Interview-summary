@@ -868,3 +868,8 @@ classDiagram
 	
 ```
 
+AQS 是实现同步器的基础组件，并发包中锁的底层就是 AQS 实现的。
+
+AQS 的关键数据结构是 Node 作为节点的 FIFO 的双向队列。Node 中的 thread 成员变量就是了进入 AQS 队列的 thread。	
+
+对于 AQS 来说，线程同步的关键是对状态值 state 进行操作。根据 state 是否属于一个线程，操作 state 的方式分为独占方式和共享方式。
