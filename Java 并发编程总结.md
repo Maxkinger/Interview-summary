@@ -812,64 +812,224 @@ LockSupport 是个工具类，它的主要作用是挂起和唤醒线程，是�
 
 AQS 即 AbstractQueuedSynchronizer，抽象同步队列，它是实现同步器的基础组件。并发包中的锁的底层就是使用 AQS 实现的。 
 
-```mermaid
-classDiagram
-	AbstractOwnableSynchronizer <|-- AbstractQueuedSynchronizer
-	AbstractQueuedSynchronizer <-- ConditionObject
-	Node <-- Node
-	Node <-- AbstractQueuedSynchronizer
-	class AbstractOwnableSynchronizer {
-		-Node exclusiveOwnerThread
-		#void setExclusiveOwnerThread(Thread thread) 
-		#Thread getExclusiveOwnerThread()
-	}
-	class ConditionObject {
-		-Node firstWaiter
-		-Node lastWaiter
-		+void signal()
-		+void signalAll()
-		+void await()
-	}
-	class Node {
-		#Node SHARED
-		#Node EXCLUSIVE
-		#int CANCELLED
-		#int SIGNAL
-		#int CONDITION
-		#int PROPAGATE
-		#int waitStatus
-		#Node prev
-		#Node next
-		#Thread thread
-		#Node nextWaiter
-		+boolean isShared()
-		+Node predecessor()
-	}
-	class AbstractQueuedSynchronizer {
-		-int state
-		-Node tail
-		-Node head
-		-Unsafe unsafe
-		-long stateOffset
-		-long headOffset
-		-long tailOffset
-		-long waitStatusOffset
-		-long nextOffset
-		#void acquire(int arg)
-		#boolean tryAcquire(int arg)
-		#void acquireShare(int arg)
-		#void acquireInterruptibly(int arg)
-		#boolean release(int arg)
-		#boolean releaseShared(int arg)
-		#boolean tryRelease(int arg)
-		#boolean tryReleaseShared(int arg)
-		
-	}
-	
-```
+![image-20200914114546570](C:\Users\admin\Desktop\面试总结\fig\image-20200914114546570.png)
 
-AQS 是实现同步器的基础组件，并发包中锁的底层就是 AQS 实现的。
+AQS 是实现同步器的基础组件，并发包中锁的底层就是 AQS 实现的。AQS 是一个锁的框架，实现了线程锁的大部分功能，可以根据 AQS 来自定义自己的并发锁。可以实现共享锁和非共享锁。
 
 AQS 的关键数据结构是 Node 作为节点的 FIFO 的双向队列。Node 中的 thread 成员变量就是了进入 AQS 队列的 thread。	
 
-对于 AQS 来说，线程同步的关键是对状态值 state 进行操作。根据 state 是否属于一个线程，操作 state 的方式分为独占方式和共享方式。
+使用 AQS 构造的锁有，ReentrantLock、ReentrantReadWriteLock、Semphore、CountDownLatch。在这些锁中，state 代表了不同的含义。对于 AQS 来说，线程同步的关键是对状态值 state 进行操作。根据 state 是否属于一个线程，操作 state 的方式分为独占方式和共享方式。
+
+独占方式获取：
+
+```java
+public final void acquire(int arg) {
+        if (!tryAcquire(arg) &&
+            acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
+            selfInterrupt();
+    }
+```
+
+独占方式释放：
+
+```java
+public final boolean release(int arg) {
+        if (tryRelease(arg)) {
+            Node h = head;
+            if (h != null && h.waitStatus != 0)
+                unparkSuccessor(h);
+            return true;
+        }
+        return false;
+    }
+```
+
+共享方式获取：
+
+```java
+public final void acquireShared(int arg) {
+        if (tryAcquireShared(arg) < 0)
+            doAcquireShared(arg);
+    }
+```
+
+共享方式释放：
+
+```java
+public final boolean releaseShared(int arg) {
+        if (tryReleaseShared(arg)) {
+            doReleaseShared();
+            return true;
+        }
+        return false;
+    }
+```
+
+如上述代码所示，tryAcquire(int arg)  尝试获取独占资源，tryAcquireShared(arg) 尝试获取共享资源。**注意，tryAcquire(int arg) 和 tryAcquireShared(arg) 并没有在 AQS 中实现，这个方法需要基于 AQS 的锁去自己实现，一般实现是设置 state 的值**。
+
+以获取独占锁为例，首先 调用 tryAcquire(int arg)  尝试获取锁，如果未获取成功，则调用 addWaiter(Node.EXCLUSIVE) 将该线程包装成独占模式的节点加入到同步队列的队尾。如下代码所示：
+
+```java
+private Node addWaiter(Node mode) {
+        Node node = new Node(Thread.currentThread(), mode);
+        // Try the fast path of enq; backup to full enq on failure
+        Node pred = tail;
+        if (pred != null) {
+            node.prev = pred;
+            if (compareAndSetTail(pred, node)) {
+                pred.next = node;
+                return node;
+            }
+        }
+        enq(node);
+        return node;
+    }
+//enq
+private Node enq(final Node node) {
+        for (;;) {
+            Node t = tail;
+            if (t == null) { // Must initialize
+                if (compareAndSetHead(new Node())) // （1）
+                    tail = head;
+            } else {
+                node.prev = t;
+                if (compareAndSetTail(t, node)) {
+                    t.next = node;
+                    return t;
+                }
+            }
+        }
+    }
+```
+
+注意上述代码（1）处这里 new 了一个 node，作为队列的哨兵节点，不是实际上的节点。Node() 无参构造函数如下：
+
+```java
+Node() {    // Used to establish initial head or SHARED marker
+        }
+```
+
+可以看到，该构造函数只用来做 SHARED 的标记或者 head 哨兵头节点。
+
+然后调用 acquireQueued(Node node, int arg）尝试获取锁。
+
+```java
+final boolean acquireQueued(final Node node, int arg) {
+        boolean failed = true;
+        try {
+            boolean interrupted = false;
+            for (;;) {
+                final Node p = node.predecessor();
+                if (p == head && tryAcquire(arg)) { // （1）
+                    setHead(node);
+                    p.next = null; // help GC
+                    failed = false;
+                    return interrupted;
+                }
+                if (shouldParkAfterFailedAcquire(p, node) &&
+                    parkAndCheckInterrupt())
+                    interrupted = true;
+            }
+        } finally {
+            if (failed)
+                cancelAcquire(node);
+        }
+    }
+private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
+        int ws = pred.waitStatus;
+        if (ws == Node.SIGNAL)
+            /*
+             * This node has already set status asking a release
+             * to signal it, so it can safely park.
+             */
+            return true;
+        if (ws > 0) {
+            /*
+             * Predecessor was cancelled. Skip over predecessors and
+             * indicate retry.
+             */
+            do {
+                node.prev = pred = pred.prev;
+            } while (pred.waitStatus > 0);
+            pred.next = node;
+        } else {
+            /*
+             * waitStatus must be 0 or PROPAGATE.  Indicate that we
+             * need a signal, but don't park yet.  Caller will need to
+             * retry to make sure it cannot acquire before parking.
+             */
+            compareAndSetWaitStatus(pred, ws, Node.SIGNAL);
+        }
+        return false;
+    }
+```
+
+acquireQueued 的流程是这样的：
+
+检查 node 的前一个结点是不是哨兵头节点，如果是的话，则说明该 node 是第一个线程的节点，则 tryAcquire 尝试获取锁，获取成功则将该节点置为头节点。获取失败则进入阻塞判断。
+
+如果 node 是靠后的节点，那么直接进入阻塞判断。从 shouldParkAfterFailedAcquire 可以看到，node 节点的前节点分别是：
+
+* SIGNAL : 
+
+  阻塞 node 的线程
+
+* CANCELLED ：
+
+  从同步队列中删除前节点，并重复此过程，直到前节点的 waitStatus 不为 CANCELLED。
+
+* SHARED 或 PROPAGATE：
+
+  CAS 尝试将前节点的 waitStatus 改为 SIGNAL。如果 CAS 成功的话，那么下一次循环，前节点为 SIGNAL， 就会把 node 的线程阻塞。
+
+再看一下 release 中的 unparkSuccessor(Node node)
+
+```java
+private void unparkSuccessor(Node node) {
+        /*
+         * If status is negative (i.e., possibly needing signal) try
+         * to clear in anticipation of signalling.  It is OK if this
+         * fails or if status is changed by waiting thread.
+         */
+        int ws = node.waitStatus;
+        if (ws < 0)
+            compareAndSetWaitStatus(node, ws, 0);
+
+        /*
+         * Thread to unpark is held in successor, which is normally
+         * just the next node.  But if cancelled or apparently null,
+         * traverse backwards from tail to find the actual
+         * non-cancelled successor.
+         */
+        Node s = node.next;
+        if (s == null || s.waitStatus > 0) {
+            s = null;
+            for (Node t = tail; t != null && t != node; t = t.prev)
+                if (t.waitStatus <= 0)
+                    s = t;
+        }
+        if (s != null)
+            LockSupport.unpark(s.thread);
+    }
+```
+
+将头节点的后继节点唤醒，被唤醒的线程又进入到 acquireQueued 的代码（1）处，成为新的头节点，同时后续节点依然被阻塞。
+
+综上所述，整个 AQS 同步队列的机制如下：
+
+![image-20200916174439595](C:\Users\admin\Desktop\面试总结\fig\image-20200916174439595.png)
+
+当 head 释放，调用 unparkSuccessor 时，则上图变为
+
+![image-20200916174843549](C:\Users\admin\Desktop\面试总结\fig\image-20200916174843549.png)
+
+上图代表的是只有 SIGNAL 的最简单基础的情况。waitStatus 为其余值时，可类似分析。比如被赋值为 CANCELLED 时，同样会调用 unparkSuccessor ，唤醒后续节点，回收当前节点。
+
+下面再来讨论 ConditionObject 相关的内容。
+
+正如 notify 和 wait 是配合 synchronized 内置锁实现线程间等待唤醒机制一样，条件变量的 signal 和 await 也是用来配合锁实现 AQS 的等待唤醒机制。
+
+
+
+
+
