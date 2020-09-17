@@ -867,7 +867,9 @@ public final boolean releaseShared(int arg) {
 
 如上述代码所示，tryAcquire(int arg)  尝试获取独占资源，tryAcquireShared(arg) 尝试获取共享资源。**注意，tryAcquire(int arg) 和 tryAcquireShared(arg) 并没有在 AQS 中实现，这个方法需要基于 AQS 的锁去自己实现，一般实现是设置 state 的值**。
 
-以获取独占锁为例，首先 调用 tryAcquire(int arg)  尝试获取锁，如果未获取成功，则调用 addWaiter(Node.EXCLUSIVE) 将该线程包装成独占模式的节点加入到同步队列的队尾。如下代码所示：
+##### 独占锁
+
+下面主要讨论独占锁相关的内容。以获取独占锁为例，首先 调用 tryAcquire(int arg)  尝试获取锁，如果未获取成功，则调用 addWaiter(Node.EXCLUSIVE) 将该线程包装成独占模式的节点加入到同步队列的队尾。如下代码所示：
 
 ```java
 private Node addWaiter(Node mode) {
@@ -900,6 +902,11 @@ private Node enq(final Node node) {
             }
         }
     }
+private void setHead(Node node) {
+        head = node;
+        node.thread = null;
+        node.prev = null;
+    }
 ```
 
 注意上述代码（1）处这里 new 了一个 node，作为队列的哨兵节点，不是实际上的节点。Node() 无参构造函数如下：
@@ -909,7 +916,7 @@ Node() {    // Used to establish initial head or SHARED marker
         }
 ```
 
-可以看到，该构造函数只用来做 SHARED 的标记或者 head 哨兵头节点。
+可以看到，该构造函数只用来做 SHARED 的标记或者 head 哨兵头节点。（**为什么会设置一个哨兵节点？**因为第一个获取锁的线程，tryAcquire 直接就获取锁成功了，是不会调用 addWaiter 进入到同步队列中的，同步队列此时还是 null。当后续节点因阻塞进入同步队列时，最初的线程释放锁资源，此时同步队列中的第一个节点实际上是内部 thread 值为 null 的哨兵节点，第二个节点才代表第二个尝试获取锁的线程。这时候队列按 FIFO 的顺序踢出第一个节点，第二个节点前移，内部的线程唤醒。从上面的 setHead 函数可以看出，虽然**头节点的 thread 始终是 null，但是头节点相当于代表现在获取到锁的正在运行的线程**。）
 
 然后调用 acquireQueued(Node node, int arg）尝试获取锁。
 
@@ -1019,17 +1026,230 @@ private void unparkSuccessor(Node node) {
 
 ![image-20200916174439595](C:\Users\admin\Desktop\面试总结\fig\image-20200916174439595.png)
 
-当 head 释放，调用 unparkSuccessor 时，则上图变为
+当 head 释放，调用 unparkSuccessor 时，2 节点先获取到锁，然后 FIFO 顺序踢出 1 节点，自己变为头节点。上图变为
 
 ![image-20200916174843549](C:\Users\admin\Desktop\面试总结\fig\image-20200916174843549.png)
 
-上图代表的是只有 SIGNAL 的最简单基础的情况。waitStatus 为其余值时，可类似分析。比如被赋值为 CANCELLED 时，同样会调用 unparkSuccessor ，唤醒后续节点，回收当前节点。
+上图代表的是只有 SIGNAL 的最简单基础的情况。waitStatus 为其余值时，可类似分析。比如被赋值为 CANCELLED 时，同样会调用 unparkSuccessor ，唤醒后续节点，回收当前节点。另外，**从这里可以看出，不论是非公平锁还是公平锁，AQS 自身的同步队列内的阻塞线程始终是按 FIFO 顺序来获取锁的。**
+
+##### 共享锁
+
+
+
+##### ConditionObject
+
+
+
+
 
 下面再来讨论 ConditionObject 相关的内容。
 
 正如 notify 和 wait 是配合 synchronized 内置锁实现线程间等待唤醒机制一样，条件变量的 signal 和 await 也是用来配合锁实现 AQS 的等待唤醒机制。
 
+#### JUC 之 ReentrantLock
 
+Reentrant Lock 是可重入的独占锁，UML 类图如下：
 
+![image-20200917092005857](C:\Users\admin\Desktop\面试总结\fig\image-20200917092005857.png)
 
+##### NonfairSync 和 FairSync
+
+NonfairSync 和 FairSync 分别实现了获取锁的非公平策略和公平策略。在 ReentrantLock 的 Sync 类中，AQS 的 state 值代表锁的可重入次数。线程通过 CAS 获取锁，获取成功则 state 加 1，释放锁则 state 减 1。当线程已经获取到一次锁后，第二次获取锁时，state 变为 2。
+
+ReentrantLock 构造函数如下：
+
+```java
+public ReentrantLock() {
+        sync = new NonfairSync();
+    }
+public ReentrantLock(boolean fair) {
+        sync = fair ? new FairSync() : new NonfairSync();
+    }
+```
+
+ 默认实现的是非公平锁。
+
+lock 方法实现如下，即直接调用 Sync 的 lock 方法：
+
+```java
+public void lock() {
+        sync.lock();
+    }
+```
+
+看下非公平锁和公平锁的 lock 方法：
+
+```java
+// nonfair lock
+final void lock() {
+    if (compareAndSetState(0, 1))
+        setExclusiveOwnerThread(Thread.currentThread());
+    else
+        acquire(1);
+}
+//fair lock
+final void lock() {
+            acquire(1);
+        }
+```
+
+可以看到，nonfair lock 会首先尝试 CAS 直接获取锁，获取失败则进入 AQS 的 acqiure 函数。
+
+之前说过，不同的锁需要实现自己的 tryAcquire 函数。接下来看看 nonfair sync 和 fair sync 是怎么实现 tryAcquire 的。
+
+nonfair sync：
+
+```java
+protected final boolean tryAcquire(int acquires) {
+            return nonfairTryAcquire(acquires);
+        }
+final boolean nonfairTryAcquire(int acquires) {
+            final Thread current = Thread.currentThread();
+            int c = getState();
+            if (c == 0) {
+                if (compareAndSetState(0, acquires)) { 
+                    setExclusiveOwnerThread(current);
+                    return true;
+                }
+            }
+            else if (current == getExclusiveOwnerThread()) { // (1)
+                int nextc = c + acquires; // (2)
+                if (nextc < 0) // (3) overflow
+                    throw new Error("Maximum lock count exceeded");
+                setState(nextc);
+                return true;
+            }
+            return false;
+        }
+```
+
+代码 (1) 和代码 (2) 处体现了可重入性。如果该线程已经获取了该锁，则将 state 值加 1。代码 (3) 处判断如果 state 小于 0，则表示 state 溢出了。
+
+fair sync :
+
+```java
+ protected final boolean tryAcquire(int acquires) {
+            final Thread current = Thread.currentThread();
+            int c = getState();
+            if (c == 0) {
+                if (!hasQueuedPredecessors() && // （1）公平性策略
+                    compareAndSetState(0, acquires)) {
+                    setExclusiveOwnerThread(current);
+                    return true;
+                }
+            }
+            else if (current == getExclusiveOwnerThread()) {
+                int nextc = c + acquires;
+                if (nextc < 0)
+                    throw new Error("Maximum lock count exceeded");
+                setState(nextc);
+                return true;
+            }
+            return false;
+        }
+public final boolean hasQueuedPredecessors() {
+        // The correctness of this depends on head being initialized
+        // before tail and on head.next being accurate if the current
+        // thread is first in queue.
+        Node t = tail; // Read fields in reverse initialization order
+        Node h = head;
+        Node s;
+        return h != t &&
+            ((s = h.next) == null || s.thread != Thread.currentThread());
+    }
+```
+
+公平锁仅在代码（1）处与非公平锁不同，这里就是体现公平的地方。在锁资源被释放掉以后，AQS 同步队列中的线程和外来线程同时竞争锁，hasQueuedPredecessors() 用于判断 AQS 的同步队列中是否含有已经在等待锁的线程。如果有的话，同步队列以外的线程则会竞争锁失败，而队列中等待线程优先竞争锁。非公平锁则相反，同步队列以外的线程可以同等地和队列中地线程竞争。
+
+上述代码中的判断：
+
+* h == t，说明当前队列为空，直接返回 false
+* h != t，并且 s == null，则说明有一个元素将要作为 AQS 的第一个节点入队（回顾前面的内容，addWaiter 调用过程中，enq 函数的第一个元素入队列是两部操作：首先创建一个哨兵节点，然后将第一个节点插入到哨兵节点后面，而此时尚未进入到 acquireQueued 中），那么返回 true
+* h != t，s != null，且 s.thread != Thread.currentThread() 则说明队列里正有线程要竞争锁，且不是当前线程，故返回 true
+
+##### 其余方法
+
+下面在介绍几个方法：
+
+1、lockInterruptibly() 
+
+```java
+public void lockInterruptibly() throws InterruptedException {
+        sync.acquireInterruptibly(1);
+    }
+
+// AQS
+public final void acquireInterruptibly(int arg)
+            throws InterruptedException {
+        if (Thread.interrupted())
+            throw new InterruptedException();// 当前线程中断则直接抛出异常
+        if (!tryAcquire(arg))
+            doAcquireInterruptibly(arg);
+    }
+```
+
+与 lock() 方法类似，对中断响应，抛出异常。
+
+2、tryLock()  和 tryLock(long timeout, TimeUnit unit)
+
+```java
+public boolean tryLock() {
+        return sync.nonfairTryAcquire(1);
+    }
+
+public boolean tryLock(long timeout, TimeUnit unit)
+            throws InterruptedException {
+        return sync.tryAcquireNanos(1, unit.toNanos(timeout));
+    }
+
+//AQS
+public final boolean tryAcquireNanos(int arg, long nanosTimeout)
+            throws InterruptedException {
+        if (Thread.interrupted())
+            throw new InterruptedException();
+        return tryAcquire(arg) ||
+            doAcquireNanos(arg, nanosTimeout);
+    }
+```
+
+tryLock() 只是竞争锁，不会导致线程被阻塞。tryLock(long timeout, TimeUnit unit) 则给竞争锁设定了时间，若超时未获取到锁则返回 false，获取到锁则线程继续运行。tryLock(long timeout, TimeUnit unit) 在设定时间内可以导致线程阻塞，进入同步队列。
+
+3、unlock() 
+
+```java
+public void unlock() {
+        sync.release(1);
+    }
+
+// AQS
+public final boolean release(int arg) {
+        if (tryRelease(arg)) {
+            Node h = head;
+            if (h != null && h.waitStatus != 0)
+                unparkSuccessor(h);
+            return true;
+        }
+        return false;
+    }
+
+// Sync
+protected final boolean tryRelease(int releases) {
+            int c = getState() - releases;
+            if (Thread.currentThread() != getExclusiveOwnerThread())
+                throw new IllegalMonitorStateException();
+            boolean free = false;
+            if (c == 0) {
+                free = true;
+                setExclusiveOwnerThread(null);
+            }
+            setState(c);
+            return free;
+        }
+```
+
+release 相关的代码很好懂，释放锁，state -1 ，所以对于可重入锁来说，重入几次就要释放几次。
+
+#### JUC 之 ReentrantReadWriteLock
+
+ReentrantLock 是独占锁，但是实际场景中会存在读多写少的情况，使用独占锁则会造成性能浪费。于是有了 ReentrantReadWriteLock。ReentrantReadWriteLock 采用读写分离的策略，每个线程都可以同时获得读锁。
 
