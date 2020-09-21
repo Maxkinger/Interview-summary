@@ -939,7 +939,7 @@ final boolean acquireQueued(final Node node, int arg) {
             }
         } finally {
             if (failed)
-                cancelAcquire(node);
+                cancelAcquire(node); // (2)
         }
     }
 private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
@@ -1034,7 +1034,73 @@ private void unparkSuccessor(Node node) {
 
 ##### 共享锁
 
+共享锁的实现主要由 acquireShared 完成，代码如下：
 
+```java
+public final void acquireShared(int arg) {
+        if (tryAcquireShared(arg) < 0)
+            doAcquireShared(arg);
+    }
+private void doAcquireShared(int arg) {
+        final Node node = addWaiter(Node.SHARED); // 注意这里构造的是 shared mode 的 node
+        boolean failed = true;
+        try {
+            boolean interrupted = false;
+            for (;;) {
+                final Node p = node.predecessor();
+                if (p == head) {
+                    int r = tryAcquireShared(arg);
+                    if (r >= 0) {
+                        setHeadAndPropagate(node, r);
+                        p.next = null; // help GC
+                        if (interrupted)
+                            selfInterrupt();
+                        failed = false;
+                        return;
+                    }
+                }
+                if (shouldParkAfterFailedAcquire(p, node) &&
+                    parkAndCheckInterrupt())
+                    interrupted = true;
+            }
+        } finally {
+            if (failed)
+                cancelAcquire(node);
+        }
+    }
+```
+
+其中，tryAcquireShared(int arg) 方法由具体的子类实现。如果 tryAcquire 失败，即返回值小于 0 ，则执行 doAcquireShared，线程阻塞。
+
+释放锁代码如下，和独占锁类似，不再赘述：
+
+```java
+public final boolean releaseShared(int arg) {
+        if (tryReleaseShared(arg)) {
+            doReleaseShared();
+            return true;
+        }
+        return false;
+    }
+private void doReleaseShared() {
+        for (;;) {
+            Node h = head;
+            if (h != null && h != tail) {
+                int ws = h.waitStatus;
+                if (ws == Node.SIGNAL) {
+                    if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0))
+                        continue;            // loop to recheck cases
+                    unparkSuccessor(h);
+                }
+                else if (ws == 0 &&
+                         !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
+                    continue;                // loop on failed CAS
+            }
+            if (h == head)                   // loop if head changed
+                break;
+        }
+    }
+```
 
 ##### ConditionObject
 
@@ -1210,9 +1276,40 @@ public final boolean tryAcquireNanos(int arg, long nanosTimeout)
         return tryAcquire(arg) ||
             doAcquireNanos(arg, nanosTimeout);
     }
+
+private boolean doAcquireNanos(int arg, long nanosTimeout)
+            throws InterruptedException {
+        if (nanosTimeout <= 0L)
+            return false;
+        final long deadline = System.nanoTime() + nanosTimeout;
+        final Node node = addWaiter(Node.EXCLUSIVE);
+        boolean failed = true;
+        try {
+            for (;;) {
+                final Node p = node.predecessor();
+                if (p == head && tryAcquire(arg)) {
+                    setHead(node);
+                    p.next = null; // help GC
+                    failed = false;
+                    return true;
+                }
+                nanosTimeout = deadline - System.nanoTime();
+                if (nanosTimeout <= 0L)
+                    return false;
+                if (shouldParkAfterFailedAcquire(p, node) &&
+                    nanosTimeout > spinForTimeoutThreshold)
+                    LockSupport.parkNanos(this, nanosTimeout);
+                if (Thread.interrupted())
+                    throw new InterruptedException();
+            }
+        } finally {
+            if (failed)
+                cancelAcquire(node);
+        }
+    }
 ```
 
-tryLock() 只是竞争锁，不会导致线程被阻塞。tryLock(long timeout, TimeUnit unit) 则给竞争锁设定了时间，若超时未获取到锁则返回 false，获取到锁则线程继续运行。tryLock(long timeout, TimeUnit unit) 在设定时间内可以导致线程阻塞，进入同步队列。
+tryLock() 只是竞争锁，不会导致线程被阻塞。tryLock(long timeout, TimeUnit unit) 则给竞争锁设定了时间，若超时未获取到锁则返回 false，获取到锁则线程继续运行。tryLock(long timeout, TimeUnit unit) 在设定时间内可以导致线程阻塞，进入同步队列。从 doAquireNanos(int arg, long nanosTimeout) 的源码可以看到，是通过 LockSupport.parkNanos(Object locker, long nanosTimeout) 来进行定时阻塞的。
 
 3、unlock() 
 
@@ -1252,4 +1349,283 @@ release 相关的代码很好懂，释放锁，state -1 ，所以对于可重入
 #### JUC 之 ReentrantReadWriteLock
 
 ReentrantLock 是独占锁，但是实际场景中会存在读多写少的情况，使用独占锁则会造成性能浪费。于是有了 ReentrantReadWriteLock。ReentrantReadWriteLock 采用读写分离的策略，每个线程都可以同时获得读锁。
+
+![image-20200919022226018](C:\Users\admin\Desktop\面试总结\fig\image-20200919022226018.png)
+
+读写锁内部维护了一个 ReadLock 和一个 WriteLock，它们依赖 Sync 实现具体功能。同样读写锁也提供了公平和非公平的实现，下面只介绍非公平实现。
+
+读写锁的读锁是共享锁，而写锁是可重入独占锁。对于 AQS 的 state 的值，高 16 位代表线程获取到读锁的次数，低 16 位表示写锁的可重入次数。这些代码都在 Sync 类中实现。和这里的实现机制有关的代码如下：
+
+```java
+		// 16位位移
+		static final int SHARED_SHIFT   = 16;
+        // 读锁状态单位值65536
+		static final int SHARED_UNIT    = (1 << SHARED_SHIFT);
+		// 读锁最大共享线程数
+		static final int MAX_COUNT      = (1 << SHARED_SHIFT) - 1;
+		// 写锁掩码
+		static final int EXCLUSIVE_MASK = (1 << SHARED_SHIFT) - 1;
+
+        /** Returns the number of shared holds represented in count  */
+        static int sharedCount(int c)    { return c >>> SHARED_SHIFT; }
+        /** Returns the number of exclusive holds represented in count  */
+        static int exclusiveCount(int c) { return c & EXCLUSIVE_MASK; }
+		
+		// 每个线程的读锁可重入次数
+		static final class HoldCounter {
+            int count = 0;
+            // Use id, not reference, to avoid garbage retention
+            final long tid = getThreadId(Thread.currentThreaad());
+        }
+		
+		// 当前线程获取到的重入读锁次数，threadLocal 类型
+		private transient ThreadLocalHoldCounter readHolds;
+		// 最后一个获取读锁线程的重入次数
+		private transient HoldCounter cachedHoldCounter;
+		
+		// 第一个获取到读锁的线程
+		private transient Thread firstReader = null;
+		// 第一个获取到读锁的线程的读锁重入次数
+        private transient int firstReaderHoldCount;
+```
+
+首先看看读写锁的构造方法：
+
+```java
+public ReentrantReadWriteLock() {
+        this(false);
+    }
+public ReentrantReadWriteLock(boolean fair) {
+        sync = fair ? new FairSync() : new NonfairSync();
+        readerLock = new ReadLock(this);
+        writerLock = new WriteLock(this);
+    }
+protected ReadLock(ReentrantReadWriteLock lock) {
+            sync = lock.sync;
+        }
+protected WriteLock(ReentrantReadWriteLock lock) {
+            sync = lock.sync;
+        }
+```
+
+可以看到，默认是非公平锁。并且读锁和写锁均由 ReentrantReadWriteLock 的全局变量 sync 传入进行构造。 
+
+##### 写锁
+
+写锁的具体逻辑由 Sync 类实现，与 ReentrantLock 类似，看看 Sync 类中 tryAcquire(int args) 的实现：
+
+```java
+protected final boolean tryAcquire(int acquires) {
+            Thread current = Thread.currentThread();
+            int c = getState();
+            int w = exclusiveCount(c); // 写锁的可重入次数
+            if (c != 0) {
+                // (Note: if c != 0 and w == 0 then shared count != 0)
+                if (w == 0 || current != getExclusiveOwnerThread()) // (1)
+                    return false;
+                if (w + exclusiveCount(acquires) > MAX_COUNT)
+                    throw new Error("Maximum lock count exceeded");
+                // Reentrant acquire
+                setState(c + acquires); // (2)
+                return true;
+            }
+            if (writerShouldBlock() || !compareAndSetState(c, c + acquires)) //（3）
+                return false;
+            setExclusiveOwnerThread(current);
+            return true;
+        }
+// nonfair
+final boolean writerShouldBlock() {
+            return false; // writers can always barge
+        }
+// fair
+final boolean writerShouldBlock() {
+            return hasQueuedPredecessors();
+        }
+```
+
+代码 (1) 处，如果 c != 0 && w == 0，说明没有写锁，但是有读锁，故不能竞争到写锁；如果有写锁，但是持有写锁的线程不为当前线程，则同样无法竞争到锁，因为写锁为独占锁。
+
+代码 (2) 处，如果竞争成功，则更改 state 的值，低16 位加 1。
+
+如果 c == 0，进入到代码 (3) 处。c == 0 说明读写锁均没有被获取。非公平锁一定返回 false，根据后续 CAS 更改 state 的值判断是否需要阻塞当前线程。而公平锁则取决于是否有在同步队列中等待的 node。如果有的话，则返回 true。
+
+再查看写锁的 unlock 过程，很好懂，不赘述：
+
+```java
+public void unlock() {
+            sync.release(1);
+        }
+protected final boolean tryRelease(int releases) {
+            if (!isHeldExclusively())
+                throw new IllegalMonitorStateException();
+            int nextc = getState() - releases; // 获取写锁的可重入值，这里没有考虑高 16 位因为获取到写锁时，读锁状态值肯定为0
+            boolean free = exclusiveCount(nextc) == 0;
+            if (free)
+                setExclusiveOwnerThread(null);
+            setState(nextc);
+            return free;
+        }
+```
+
+其他函数如 lockInterruptibly()、tryLock()、tryLock(long timeout, TimeUnit unit) 等也很好理解，和 ReentrantLock 中类似，不再赘述。
+
+##### 读锁
+
+读锁是共享锁，分析其中的 tryAcquireShared 代码：
+
+```java
+protected final int tryAcquireShared(int unused) {
+            Thread current = Thread.currentThread();
+            int c = getState();
+            if (exclusiveCount(c) != 0 &&
+                getExclusiveOwnerThread() != current)
+                return -1;
+            int r = sharedCount(c);
+            if (!readerShouldBlock() && // (1)
+                r < MAX_COUNT &&
+                compareAndSetState(c, c + SHARED_UNIT)) {
+                if (r == 0) {
+                    firstReader = current;
+                    firstReaderHoldCount = 1;
+                } else if (firstReader == current) {
+                    firstReaderHoldCount++;
+                } else {
+                    HoldCounter rh = cachedHoldCounter;
+                    if (rh == null || rh.tid != getThreadId(current))
+                        cachedHoldCounter = rh = readHolds.get();
+                    else if (rh.count == 0) // ？这里是什么意思？
+                        readHolds.set(rh);
+                    rh.count++;
+                }
+                return 1;
+            }
+            return fullTryAcquireShared(current); // 类似于 tryAcquireShared,但是是自旋获取
+        }
+
+final int fullTryAcquireShared(Thread current) {
+            HoldCounter rh = null;
+            for (;;) {
+                int c = getState();
+                if (exclusiveCount(c) != 0) {
+                    if (getExclusiveOwnerThread() != current)
+                        return -1;
+                    // else we hold the exclusive lock; blocking here
+                    // would cause deadlock.
+                } else if (readerShouldBlock()) { //(2) 注意这里可以导致读线程阻塞
+                    // Make sure we're not acquiring read lock reentrantly
+                    if (firstReader == current) {
+                        // assert firstReaderHoldCount > 0;
+                    } else {
+                        if (rh == null) {
+                            rh = cachedHoldCounter;
+                            if (rh == null || rh.tid != getThreadId(current)) {
+                                rh = readHolds.get();
+                                if (rh.count == 0)
+                                    readHolds.remove();
+                            }
+                        }
+                        if (rh.count == 0)
+                            return -1;
+                    }
+                }
+                if (sharedCount(c) == MAX_COUNT)
+                    throw new Error("Maximum lock count exceeded");
+                if (compareAndSetState(c, c + SHARED_UNIT)) {
+                    if (sharedCount(c) == 0) {
+                        firstReader = current;
+                        firstReaderHoldCount = 1;
+                    } else if (firstReader == current) {
+                        firstReaderHoldCount++;
+                    } else {
+                        if (rh == null)
+                            rh = cachedHoldCounter;
+                        if (rh == null || rh.tid != getThreadId(current))
+                            rh = readHolds.get();
+                        else if (rh.count == 0)
+                            readHolds.set(rh);
+                        rh.count++;
+                        cachedHoldCounter = rh; // cache for release
+                    }
+                    return 1;
+                }
+            }
+        }
+```
+
+可以看到，没有写线程持有锁时，在判断是否需要阻塞时，与 state 相关的只有 r < MAX_COUNT 的约束，即意味着在上限内读线程有多少来多少，都可以获取到锁，不会阻塞。即使暂时无法获取到锁，也会进入 fullTryAcquireShared 的自旋尝试获取读锁，除 readerShouldBlock() 返回 true 的情况外都不会阻塞。
+
+代码 (1) 和 (2) 处的 readerShouldBlock() 函数用以判断当前线程是否需要阻塞。其实现如下：
+
+```java
+// fair sync
+final boolean readerShouldBlock() {
+            return hasQueuedPredecessors();
+        }
+// non fair sync
+final boolean readerShouldBlock() {
+            /* As a heuristic to avoid indefinite writer starvation,
+             * block if the thread that momentarily appears to be head
+             * of queue, if one exists, is a waiting writer.  This is
+             * only a probabilistic effect since a new reader will not
+             * block if there is a waiting writer behind other enabled
+             * readers that have not yet drained from the queue.
+             */
+            return apparentlyFirstQueuedIsExclusive();
+        }
+final boolean apparentlyFirstQueuedIsExclusive() {
+        Node h, s;
+        return (h = head) != null &&
+            (s = h.next)  != null &&
+            !s.isShared()         && //(1)
+            s.thread != null;
+    }
+```
+
+注意，再非公平实现中，并没有像写锁那样直接返回 false，而是调用了 apparentlyFirstQueuedIsExclusive 来判断 AQS 同步队列中正在等待的第一个节点，即第二个节点是不是写锁，上述代码 (1) 处。如果是写锁，则 readerShouldBlock 返回 true。**为什么要这样？**因为如果直接返回 false 的话，再读多写少的情况下，由可能会出现在等待写锁的第一个节点一直无法得到锁的情况，一直阻塞。为了避免这种情况，所以要判断一下下一个节点是不是在尝试获取写锁。当然，这只是在一定程度上缓解了写线程饥饿的情况。如果第一个等待节点在等待读锁，下一个才是写锁，那同样可能造成写线程饥饿。
+
+再看 unlock 函数：
+
+```java
+public void unlock() {
+            sync.releaseShared(1);
+        }
+protected final boolean tryReleaseShared(int unused) {
+            Thread current = Thread.currentThread();
+            if (firstReader == current) {
+                // assert firstReaderHoldCount > 0;
+                if (firstReaderHoldCount == 1)
+                    firstReader = null;
+                else
+                    firstReaderHoldCount--;
+            } else {
+                HoldCounter rh = cachedHoldCounter;
+                if (rh == null || rh.tid != getThreadId(current))
+                    rh = readHolds.get();
+                int count = rh.count;
+                if (count <= 1) {
+                    readHolds.remove();
+                    if (count <= 0)
+                        throw unmatchedUnlockException();
+                }
+                --rh.count;
+            }
+            for (;;) { //循环直到读锁计数 - 1 CAS 操作成功
+                int c = getState();
+                int nextc = c - SHARED_UNIT;
+                if (compareAndSetState(c, nextc))
+                    // Releasing the read lock has no effect on readers,
+                    // but it may allow waiting writers to proceed if
+                    // both read and write locks are now free.
+                    return nextc == 0;
+            }
+        }
+
+```
+
+其他函数如 lockInterruptibly()、tryLock()、tryLock(long timeout, TimeUnit unit) 等也很好理解，和 ReentrantLock 中类似，不再赘述。
+
+#### JUC 之 StampedLock
+
+// 待补充
 
