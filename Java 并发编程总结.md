@@ -1629,3 +1629,62 @@ protected final boolean tryReleaseShared(int unused) {
 
 // 待补充
 
+#### JUC 之并发队列
+
+JDK 中提供了一系列并发安全队列，按照实现方式不同可分为阻塞队列和非阻塞队列。前者用锁实现，后者则用 CAS 算法实现。
+
+#### JUC 并发队列之 ConcurrentLinkedQueue
+
+ConcurrentLinkedQueue 类结构如下：
+
+![image-20200922025516215](C:\Users\admin\Desktop\面试总结\fig\image-20200922025516215.png)
+
+ConcurrentLinkedQueue 内部的数据结构就是一个以 Node 为节点的单链表。其中有两个 volatile 修饰的 head 和 tail 分别指向链表的头尾节点。队列生成时，头尾是的 node 内部的 E 为 null 的哨兵节点。
+
+```java
+private transient volatile Node<E> head;
+private transient volatile Node<E> tail;
+// 构造函数
+public ConcurrentLinkedQueue() {
+        head = tail = new Node<E>(null);
+    }
+```
+
+##### offer 操作
+
+```java
+public boolean offer(E e) {
+        checkNotNull(e);
+        final Node<E> newNode = new Node<E>(e);
+
+        for (Node<E> t = tail, p = t;;) {
+            Node<E> q = p.next;
+            if (q == null) {
+                // p is last node
+                if (p.casNext(null, newNode)) {
+                    // Successful CAS is the linearization point
+                    // for e to become an element of this queue,
+                    // and for newNode to become "live".
+                    if (p != t) // hop two nodes at a time
+                        casTail(t, newNode);  // Failure is OK.
+                    return true;
+                }
+                // Lost CAS race to another thread; re-read next
+            }
+            else if (p == q)
+                // We have fallen off list.  If tail is unchanged, it
+                // will also be off-list, in which case we need to
+                // jump to head, from which all live nodes are always
+                // reachable.  Else the new tail is a better bet.
+                p = (t != (t = tail)) ? t : head;
+            else
+                // Check for tail updates after two hops.
+                p = (p != t && t != (t = tail)) ? t : q;
+        }
+    }
+```
+
+
+
+// 待补充
+
