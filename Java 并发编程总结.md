@@ -1635,6 +1635,8 @@ JDK 中提供了一系列并发安全队列，按照实现方式不同可分为�
 
 #### JUC 并发队列之 ConcurrentLinkedQueue
 
+ConcurrentLinkedQueue  是无界队列。
+
 ConcurrentLinkedQueue 类结构如下：
 
 ![image-20200922025516215](C:\Users\admin\Desktop\面试总结\fig\image-20200922025516215.png)
@@ -1688,3 +1690,26 @@ public boolean offer(E e) {
 
 // 待补充
 
+#### JUC 并发队列之 LinkedBlockingQueue
+
+LinkedBlockingQueue 是有界队列，可以在创建对象时指定 capacity，不指定则默认为 Integer.MAX_VALUE。因为队列有界，所以含有生产者消费者模型。
+
+offer 和 poll 方法会判断当前队列满还是空，再进行操作，所以不会有条件阻塞。而 put 和 take 操作则会因为队列满和空而调用 notFull.await() 和 notEmpty.await() 进入条件阻塞。
+
+// 待补充
+
+#### JUC 并发队列之 ArrayBlockingQueue
+
+ArrayBlockingQueue 中只有一个由 ReentrantLock 实现的 lock，故不能同时 poll 和 offer。lock 默认是非公平锁。锁的粒度较大。
+
+// 待补充
+
+#### JUC 并发队列之 PriorityBlockingQueue
+
+PriorityBlockingQueue 是待优先级的无界阻塞队列，每次出队都返回优先级最高或者最低的对象。其内部是使用平衡二叉树堆实现的，所以直接遍历队列元素不保证有序。
+
+// 待补充
+
+JUC 并发队列之 DelayQueue
+
+// 待补充
