@@ -1713,3 +1713,18 @@ PriorityBlockingQueue 是待优先级的无界阻塞队列，每次出队都返�
 JUC 并发队列之 DelayQueue
 
 // 待补充
+
+#### JUC 之线程池
+
+https://tech.meituan.com/2020/04/02/java-pooling-pratice-in-meituan.html
+
+Java中的线程池核心实现类是ThreadPoolExecutor，其设计思想把任务提交和任务执行解耦，类图如下：
+
+![图1 ThreadPoolExecutor UML类图](C:\Users\admin\Desktop\面试总结\fig\912883e51327e0c7a9d753d11896326511272.png)
+
+用户无需关注如何创建线程，如何调度线程来执行任务，用户只需提供 Runnable 对象，将任务的运行逻辑提交到执行器(Executor)中，由 Executor 框架完成线程的调配和任务的执行部分。
+
+线程调度如下：
+
+![图2 ThreadPoolExecutor运行流程](C:\Users\admin\Desktop\面试总结\fig\77441586f6b312a54264e3fcf5eebe2663494.png)
+
