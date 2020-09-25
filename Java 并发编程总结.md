@@ -1708,9 +1708,15 @@ ArrayBlockingQueue 中只有一个由 ReentrantLock 实现的 lock，故不能�
 
 PriorityBlockingQueue 是待优先级的无界阻塞队列，每次出队都返回优先级最高或者最低的对象。其内部是使用平衡二叉树堆实现的，所以直接遍历队列元素不保证有序。
 
+每次 offer 操作和 poll 操作完成以后，都会将最小的元素换到根顶，形成小顶堆。这样每次取元素的时候都是取的最小元素。
+
 // 待补充
 
-JUC 并发队列之 DelayQueue
+#### JUC 并发队列之 DelayQueue
+
+DelayQueue 内部是由 PriorityBlockingQueue 实现的。delay 的时间就是优先级。take 方法取出队首 delay 时间最短的元素，当其 delay 时间还未走完时，调用 awaitNanos(long delay) 进入限时阻塞，同时释放锁。
+
+另外，DelayQueue 取元素时遵循 leader-follower 模式，因为取元素时线程 A 可能因进入限时阻塞而释放锁，这时候会可能有线程 B 来取相同的元素，而当线程 A 阻塞超时返回时，可能会导致 A 和 B 同时取一个元素，这时候导致出错。所以有 leader-follower 模式：线程 A 取队首元素时，若没有其他线程也在取，则它设为 leader。如果有其他线程正在取，则设为 follower。
 
 // 待补充
 
@@ -1728,3 +1734,14 @@ Java中的线程池核心实现类是ThreadPoolExecutor，其设计思想把任�
 
 ![图2 ThreadPoolExecutor运行流程](C:\Users\admin\Desktop\面试总结\fig\77441586f6b312a54264e3fcf5eebe2663494.png)
 
+#### JUC 之 CountDownLatch
+
+// 待补充
+
+#### JUC 之 CyclicBarrier
+
+// 待补充
+
+#### JUC 之 Semaphore
+
+// 待补充
