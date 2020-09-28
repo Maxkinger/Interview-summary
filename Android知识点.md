@@ -1,10 +1,14 @@
-### View 的绘制流程
+### 一、View 的绘制流程
 
 #### onMeasure 
 
+### 二、ANR 
 
+一般来说，当主线程在5秒内没有对触摸事件进行响应时，就会产生 ANR。
 
-### OkHttp
+但是，如果直接在 Activity 中 Thread.sleep(5000L)，会不会产生 ANR？我测试的结果，5000L 是不会 ANR 的，然而 6000L 就会出现 ANR。
+
+### 三、OkHttp
 
 #### 1、dispatcher
 
@@ -139,7 +143,7 @@ Response getResponseWithInterceptorChain() throws IOException {
 
 
 
-### Retrofit
+### 四、Retrofit
 
 #### 1、动态代理
 
