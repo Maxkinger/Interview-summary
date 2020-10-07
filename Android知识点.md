@@ -859,5 +859,9 @@ void dispatchAttachedToWindow(AttachInfo info, int visibility) {
 
 // 待补充
 
+#### 7、同步屏障
 
+同步屏障消息就是 target == null 的消息，通过 MQ 的 postSyncBarrier() 方法可以给 MQ 队列里添加一个同步屏障。如果 MQ 中取消息，当前消息为同步屏障，则会跳过当前消息，先取到后面的异步消息执行。异步消息就创建 msg 时，调用 setAsynchronous(true) 将 mAsynchronous 置为 true 的消息。
+
+https://juejin.im/post/6844903910113705998
 
