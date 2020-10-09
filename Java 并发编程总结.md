@@ -680,9 +680,15 @@ set(int index, E element) 函数也类似，先复制，再修改值，使用 lo
 
 ##### 弱一致性问题
 
-关于一致性的解释：https://en.wikipedia.org/wiki/Weak_consistency   https://zhuanlan.zhihu.com/p/67949045
+关于一致性的解释：
+
+https://en.wikipedia.org/wiki/Weak_consistency 
+
+ https://zhuanlan.zhihu.com/p/67949045
 
 假如线程 A 在修改某个元素的值，在获取到值后，另一个线程 B 删除了其中一个元素，然后线程 A 再进行修改操作，这时线程 A 要修改的 array 已经和 B 删除元素后的 array 不一样了。这就是写时复制策略产生的弱一致性问题。
+
+**set 方法是加锁的，为什么会和其他修改冲突？**
 
 参考 CopyOnWriteArrayList 的迭代器：
 

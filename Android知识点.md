@@ -865,3 +865,47 @@ void dispatchAttachedToWindow(AttachInfo info, int visibility) {
 
 https://juejin.im/post/6844903910113705998
 
+### 六、加载图片
+
+http://dandanlove.com/2020/04/22/bitmap-load-big-pic/
+
+https://kaiwu.lagou.com/course/courseInfo.htm?courseId=67#/detail/pc?id=1872
+
+`BitmapFactory` 类提供了几种用于从各种来源创建 `Bitmap` 的解码方法`（decodeByteArray()、decodeFile()、decodeResource()`等）。根据您的图片数据源选择最合适的解码方法。这些方法尝试为构造的位图分配内存，因此很容易导致 `OutOfMemory` 异常。每种类型的解码方法都有额外的签名，允许您通过 `BitmapFactory.Options` 类指定解码选项。在解码时将`inJustDecodeBounds` 属性设置为 `true` 可避免内存分配，为位图对象返回 `null`，但设置 `outWidth`、`outHeight` 和 `outMimeType`。此方法可让您在构造位图并为其分配内存之前读取图片数据的尺寸和类型。
+
+**怎样降低图片占用内存？**
+
+* 设置 BitmapFactory.Options.inPreferredConfig，比如从 ARGB_888 改为 ARGB_565
+* 设置 BitmapFactory.Options.inSampleSize，设置每隔 inSampleSize 进行一次图像采样以压缩图像。这个要配合设置 BitmapFactory.Options.inJustBound，inJustBound 为 true 则不加载位图进内存，只返回尺寸信息，这个尺寸可以用来找到合适的 inSampleSize。
+
+**Bitmap 复用**
+
+如果在 Android 某个页面创建很多个 Bitmap，比如有两张图片 A 和 B，通过点击某一按钮需要在 ImageView 上切换显示这两张图片。但是在每次调用 switchImage 切换图片时，都需要通过 BitmapFactory 创建一个新的 Bitmap 对象。当方法执行完毕后，这个 Bitmap 又会被 GC 回收，这就造成不断地创建和销毁比较大的内存对象，从而导致频繁 GC（或者叫内存抖动）。
+
+如何避免？
+
+每次切换图片只是显示的内容不一样，我们可以重复利用已经占用内存的 Bitmap 空间，具体做法就是使用 Options.inBitmap 参数进行优化。
+
+<img src="Android知识点.assets/CgqCHl7GJbmAaThsAAfZxD2Nk4g697.png" alt="image (6).png" style="zoom:50%;" />
+
+解释说明：
+
+图中 1 处创建一个可以用来复用的 Bitmap 对象。
+图中 2 处，将 options.inBitmap 赋值为之前创建的 reuseBitmap 对象，从而避免重新分配内存。
+
+**注意**：在上述 getBitmap 方法中，复用 inBitmap 之前，需要调用 canUseForInBitmap 方法来判断 reuseBitmap 是否可以被复用。这是因为 Bitmap 的复用有一定的限制：
+
+> 在 Android 4.4 版本之前，只能重用相同大小的 Bitmap 内存区域；
+> 4.4 之后你可以重用任何 Bitmap 的内存区域，只要这块内存比将要分配内存的 bitmap 大就可以。
+
+**BitmapRegionDecoder 图片分片显示**
+有时候我们想要加载显示的图片很大或者很长，比如手机滚动截图功能生成的图片。
+
+针对这种情况，在不压缩图片的前提下，不建议一次性将整张图加载到内存，而是采用分片加载的方式来显示图片部分内容，然后根据手势操作，放大缩小或者移动图片显示区域。
+
+在此基础上，我们可以通过自定义View，添加 touch 事件来动态地设置 Bitmap 需要显示的区域 Rect。具体实现网上已经有很多成熟的轮子可以直接使用，比如 LargeImageView 。张鸿洋先生也有一篇比较详细文章对此介绍：高清加载巨图方案https://blog.csdn.net/lmj623565791/article/details/49300989.
+
+### 七、LRU 算法
+
+https://leetcode-cn.com/problems/lru-cache/solution/lru-ce-lue-xiang-jie-he-shi-xian-by-labuladong/
+
