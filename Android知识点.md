@@ -876,7 +876,10 @@ https://kaiwu.lagou.com/course/courseInfo.htm?courseId=67#/detail/pc?id=1872
 **怎样降低图片占用内存？**
 
 * 设置 BitmapFactory.Options.inPreferredConfig，比如从 ARGB_888 改为 ARGB_565
+
 * 设置 BitmapFactory.Options.inSampleSize，设置每隔 inSampleSize 进行一次图像采样以压缩图像。这个要配合设置 BitmapFactory.Options.inJustBound，inJustBound 为 true 则不加载位图进内存，只返回尺寸信息，这个尺寸可以用来找到合适的 inSampleSize。
+
+  <img src="Android知识点.assets/1350900909_9104.jpg" alt="1350900909_9104" style="zoom:50%;" />
 
 **Bitmap 复用**
 
@@ -908,4 +911,45 @@ https://kaiwu.lagou.com/course/courseInfo.htm?courseId=67#/detail/pc?id=1872
 ### 七、LRU 算法
 
 https://leetcode-cn.com/problems/lru-cache/solution/lru-ce-lue-xiang-jie-he-shi-xian-by-labuladong/
+
+### 八、事件点击
+
+先讨论两个具体的特殊情况。
+
+子 View 调用了 requestDisallowInterceptTouchEvent(false)， 允许父 ViewGroup 拦截事件。
+
+ViewGroup 的事件分发代码如下：
+
+```java
+if (actionMasked == MotionEvent.ACTION_DOWN
+                    || mFirstTouchTarget != null) {
+                final boolean disallowIntercept = (mGroupFlags & FLAG_DISALLOW_INTERCEPT) != 0;
+                if (!disallowIntercept) {
+                    intercepted = onInterceptTouchEvent(ev); // (1)允许拦截则走这里
+                    ev.setAction(action); // restore action in case it was changed
+                } else {
+                    intercepted = false;
+                }
+            } else {
+                // There are no touch targets and this action is not an initial down
+                // so this view group continues to intercept touches.
+                intercepted = true;
+            }
+// （1）
+public boolean onInterceptTouchEvent(MotionEvent ev) {
+        if (ev.isFromSource(InputDevice.SOURCE_MOUSE)
+                && ev.getAction() == MotionEvent.ACTION_DOWN
+                && ev.isButtonPressed(MotionEvent.BUTTON_PRIMARY)
+                && isOnScrollbarThumb(ev.getX(), ev.getY())) {
+            return true;
+        }
+        return false;
+    }
+```
+
+从（1）处可以看到，只有鼠标点击的 DOWN 事件才会被默认拦截掉。如果不复写该方法的话，正常手指 down 不会被拦截。
+
+如果复写该方法，让 DOWN 事件在这里就被拦截的话，那么 mFirstTouchTarget 就一直是 null，不会被赋值。ViewGroup 就是通过 mFirstTouchTarget == null ？ 来判断事件是否传递到了子 View，如果传递到了子 View 且被消费，则不为 null；如果在 down 事件被父 ViewGroup 拦截，或者子 View 都不处理事件，则 mFirstTouchTarget  = null 。
+
+如果是 MOVE 事件被父 View 拦截，那么父 View 会向子 View 发送 CANCEL 事件。
 
