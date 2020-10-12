@@ -953,3 +953,134 @@ public boolean onInterceptTouchEvent(MotionEvent ev) {
 
 如果是 MOVE 事件被父 View 拦截，那么父 View 会向子 View 发送 CANCEL 事件。
 
+### 九、Rxjava 总结
+
+1、onSubscribe(Disposable d) 方法在建立订阅关系的线程上执行。
+
+2、disposable.dispose() 会：
+
+* 切断上下游关系
+* 使上游停止发送事件
+
+3、Retrofit 的 Call 的 Response 转化是在 RxJava2CallAdapater 的 adapt(Call<R> call) 方法中进行转化的，会通过一系列的 bool 值进行判断要转化成哪个类型。
+
+<img src="Android知识点.assets/image-20201012014628048.png" alt="image-20201012014628048" style="zoom:50%;" />
+
+4、Disposable 取消思路
+
+* 中间操作符牵线，上下游对接，下游要取消直接找到上游取消
+* 使用 setOnce 和 replace 替换下游 disposable，转化成给上游的 disposable，或者告诉调度器不要再进行下去了
+
+通过继承自 AotmicReference 的 disposable 来达到引用不变而引用指向对象变化的功能。
+
+5、observeOn 在订阅的时候不切线程，而是在事件发射前时候切线程
+
+6、android 几乎用不到背压，跟缓冲相关，buffer 满了就会用背压降低上游发送速率。一般只有在不停地取远端音视频流的情况下才会导致缓冲区满了，需要上游降低速率。
+
+### 十、RecyclerView
+
+RecyclerView 的所谓回收基本原理如下：
+
+<img src="Android知识点.assets/image-20201012192954669.png" alt="image-20201012192954669" style="zoom:50%;" />
+
+当 item 滑出屏幕不可见的话，就会考虑回收这个 item，而不会始终绘制所有 item。
+
+<img src="Android知识点.assets/image-20201012193610244.png" alt="image-20201012193610244" style="zoom: 25%;" />
+
+#### 1、ViewHolder
+
+Tips：findViewById 是 dfs 过程深度优先搜索。
+
+<img src="Android知识点.assets/image-20201012211802660.png" alt="image-20201012211802660" style="zoom: 33%;" />
+
+ViewHolder 与 View 是一对一的关系，防止重复调用 findViewById 进行 dfs 过程耗费性能。对于 ListView 来说，ViewHolder 并不是复用 View，因为 convertView 不为空就是在复用 View，ViewHolder 最关键的点在于防止 findViewById 进行 dfs 过程消耗性能。
+
+#### 2、缓存机制
+
+ListView 缓存机制：
+
+<img src="Android知识点.assets/image-20201012212910726.png" alt="image-20201012212910726" style="zoom:33%;" />
+
+<img src="Android知识点.assets/image-20201012212959999.png" alt="image-20201012212959999" style="zoom:33%;" />
+
+* Active View 是指屏幕上的 View
+* Scrap View 是指滑出屏幕外的 View，Scrap View 在复用后要重新绑定数据
+
+RecyclerView 缓存机制：
+
+<img src="Android知识点.assets/image-20201012213436290.png" alt="image-20201012213436290" style="zoom:33%;" />
+
+使用 Recycler 来管理缓存，RecyclerView 缓存的是 ViewHolder。
+
+* 第一级缓存 Scrap，指的是屏幕内部的 View
+
+* 第二级缓存 Cache，是指刚刚滑出屏幕外的 View，它和 Scap 一样在复用的时候不用重新绑定数据。通过 position 来在 Scrap 和 Cache 中找到对应的 View 进行复用，不需要重新绑定数据。 Cache 和 Scrap 只关心 Position 不关心 ViewType。
+
+* 第三级缓存 ViewCacheExtension，用户自定义的 cache 策略，用户如果定义了就到这一层查找，没有定义就直接取第四层
+
+* 第四级缓存 RecycledViewPool，RecyclerView 缓存池，所有被废弃的 View 的池子，上面都是 dirty data。使用 ViewType 在 Pool 中找到需要复用的 View ，复用的时候需要重新绑定数据即 onBindViewHolder
+
+* 如果以上缓存都没有，那么调用 Adapter.onCreateViewHolder
+
+* 注意列表广告曝光统计：
+
+  <img src="Android知识点.assets/image-20201012215255909.png" alt="image-20201012215255909" style="zoom:33%;" />
+
+#### 3、RecyclerView 性能优化
+
+* 不要在 onBindViewHolder 设置点击监听，在 onCreateViewHolder 里监听就可以，onBindViewHolder  会被调用多次，容易造成内存抖动
+
+  <img src="Android知识点.assets/image-20201012220707412.png" alt="image-20201012220707412" style="zoom:33%;" />![image-20201012220820049](Android知识点.assets/image-20201012220820049.png)
+
+  <img src="Android知识点.assets/image-20201012220707412.png" alt="image-20201012220707412" style="zoom:33%;" />![image-20201012220820049](Android知识点.assets/image-20201012220820049.png)
+
+* LinearLayoutManager.setInitialPrefetchItemCount()
+
+  <img src="Android知识点.assets/image-20201012221015968.png" alt="image-20201012221015968" style="zoom:33%;" />
+
+
+
+<img src="Android知识点.assets/image-20201012221209119.png" alt="image-20201012221209119" style="zoom:33%;" />
+
+RenderThread 是 Android 5.0 以后添加的专门用于 UI 渲染的线程，减轻了主线程的负担，这样主线程就可以有时间来做 prefetch。对于被嵌套在外部可以滑动的 View 内部作为子 View 的 RecyclerView，比如竖向滑动的 ScrollView 里添加了 横向滑动的 RecyclerView，可以调用 LinearLayoutManager.setInitialPrefetchItemCount() 做 prefetch ，这样 RecyclerView 在被滑动时第一次出现在手机屏幕上出现的时候，这样可以避免第一次匆忙加载 RecyclerView 的 item 而造成卡顿。
+
+* RecyclerView.setHasFixedSize()
+
+  <img src="Android知识点.assets/image-20201012221847246.png" alt="image-20201012221847246" style="zoom:33%;" />
+
+  设置为 true 可以避免整个 RecyclerView 进行一整套 measure、layout、draw 操作。
+
+* 多个 RecyclerView 公用一个 RecycledViewPool
+
+  <img src="Android知识点.assets/image-20201012222230038.png" alt="image-20201012222230038" style="zoom:33%;" />
+
+  比如一个 ViewPager 下有好几个 tab，每个 tab 就是一个 RecyclerView，并且它们的 item type 相同，这样就可以让多个 RecyclerView 共用一个 RecycledViewPool。
+
+<img src="Android知识点.assets/image-20201012222406271.png" alt="image-20201012222406271" style="zoom:33%;" />
+
+* DiffUtil 提高列表性能
+
+  <img src="Android知识点.assets/image-20201012222645592.png" alt="image-20201012222645592" style="zoom:33%;" />
+
+  
+
+  <img src="Android知识点.assets/image-20201012222737055.png" alt="image-20201012222737055" style="zoom:33%;" />![image-20201012224814699](Android知识点.assets/image-20201012224814699.png)
+
+  <img src="Android知识点.assets/image-20201012224814699.png" alt="image-20201012224814699" style="zoom:33%;" />
+
+  notifyDataSetChange() 会 requestLayout，使整个 RecyclerView 重新测量布局绘制。如果刷新后的列表有部分相同的话，那么使用 DiffUtil 可以提升性能，因为它进行的是增量的更新，而不像 notifyDataSetChange() 是全量的。
+
+  <img src="Android知识点.assets/image-20201012225235670.png" alt="image-20201012225235670" style="zoom:33%;" />
+
+  如果列表很大，那么计算 diff 会比较耗时，可以放在异步线程做，然后把结果发送回主线程。
+
+<img src="Android知识点.assets/image-20201012225904207.png" alt="image-20201012225904207" style="zoom:33%;" />
+
+#### 4、ItemDecoration
+
+<img src="Android知识点.assets/image-20201012231816475.png" alt="image-20201012231816475" style="zoom:33%;" />
+
+#### 5、进阶
+
+<img src="Android知识点.assets/image-20201012232226965.png" alt="image-20201012232226965" style="zoom:33%;" />
+
