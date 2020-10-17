@@ -1084,3 +1084,49 @@ RenderThread 是 Android 5.0 以后添加的专门用于 UI 渲染的线程，�
 
 <img src="Android知识点.assets/image-20201012232226965.png" alt="image-20201012232226965" style="zoom:33%;" />
 
+### 十一、Activity & Fragment
+
+#### 1、Activity 生命周期
+
+![img](Android知识点.assets/activity_lifecycle.png)
+
+* 怎么区分 Activity 销毁后会重新创建还是就是单纯的退出销毁？
+
+  使用 isFinishing 方法
+
+* Activity A 启动 Activity B，两个 Activity 分别走哪些生命周期？
+
+  1、A 调用 onPause()
+
+  2、B 调用 onCreate()、onStart()、onResume()，Activity B 现在获取到了用户焦点
+
+  3、A 现在不再可见，调用 onStop() 方法
+
+  <img src="Android知识点.assets/image-20201013164921847.png" alt="image-20201013164921847" style="zoom:33%;" />
+
+* Activity 上启动 Dialog ，生命周期？
+
+  一般的 dialog 启动，Activity 只会调用 onResume。如果 Dialog 完全将 Activity 覆盖的话，那么还会调用 onStop。
+
+* Activity 从 task 中回到顶部，生命周期？
+
+  如果重新回到顶部的 Activity 实例仍然是原来的那个实例，那么会调用 onReStart。如果不是原来的实例，那么则调用 onStart。
+
+* onSaveInstanceState() 的限制
+
+  onSaveInstanceState() 只能接受小于 500KB 的 Bundle，在这种情况下，用 ViewModel 保存 Activity 的 UI 状态就更加合理。
+
+* ViewModel 的局限
+
+  在进程被 Android 系统杀掉以后，ViewModel 同样会被销毁。这时候只能使用 onSaveInstanceState(Bundle bundle) 来保存数据。ViewModel 的生命周期 scope 就是它所对应的 LifeCycleOwner 的 scope，不能超出 LifeCycleOwner 的 scope。
+
+#### 2、Fragment 生命周期
+
+![img](Android知识点.assets/fragment_lifecycle.png)
+
+Activity 和 Fragment 的生命周期交互如下：
+
+![img](Android知识点.assets/activity_fragment_lifecycle.png)
+
+### 十二、Service & IntentService
+
