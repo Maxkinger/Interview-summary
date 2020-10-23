@@ -348,7 +348,7 @@ public final class MessageQueue {
 }
 ```
 
- 消息入队：
+消息入队：
 
 ```java
 boolean enqueueMessage(Message msg, long when) {
@@ -364,10 +364,10 @@ boolean enqueueMessage(Message msg, long when) {
             }
 
             msg.markInUse();
-            msg.when = when; // 消息时间，用来发送 delay消息
+            msg.when = when;
             Message p = mMessages;
             boolean needWake;
-            if (p == null || when == 0 || when < p.when) {
+            if (p == null || when == 0 || when < p.when) { // (1)
                 // New head, wake up the event queue if blocked.
                 msg.next = p;
                 mMessages = msg;
@@ -376,13 +376,12 @@ boolean enqueueMessage(Message msg, long when) {
                 // Inserted within the middle of the queue.  Usually we don't have to wake
                 // up the event queue unless there is a barrier at the head of the queue
                 // and the message is the earliest asynchronous message in the queue.
-                needWake = mBlocked && p.target == null && msg.isAsynchronous();
+                needWake = mBlocked && p.target == null && msg.isAsynchronous(); // (3)
                 Message prev;
-                // 遍历至 MQ 队列尾部，然后将新消息放在尾部
-                for (;;) {
+                for (;;) { // (2)
                     prev = p;
                     p = p.next;
-                    if (p == null || when < p.when) { // 如果新的消息触发时间大于队列中已有消息，则退出循环并将消息插在中间。
+                    if (p == null || when < p.when) {
                         break;
                     }
                     if (needWake && p.isAsynchronous()) {
@@ -402,6 +401,12 @@ boolean enqueueMessage(Message msg, long when) {
     }
 ```
 
+注意上述代码 (1) 和 (2) 处。(1) 处表示，如果要插入的当前消息的 `when` 小于对头消息的 `when` ，那么将消息头插，使其成为新的队头。如果当前消息的 `when` 不小于对头消息的 `when` ，即走到 (2) 处，循环找到后续消息中第一个满足 `when` 大于需插入消息 `when` ，然后将其插在该消息前。
+
+从上面的分析可以看出，按这样方式进行每个消息的插入，最终会形成一个按照 `when` 升序排列的消息队列。即消息按照其需要发生的时间顺序排列。
+
+**// 待补充 。注意代码 (3) 处唤醒的条件，一般认为每一个 VSYNC 信号都会唤醒队列，这样的话，可以对比 (3) 的条件深挖一下 VSYNC 信号消息**
+
 消息出队：
 
 ```java
@@ -418,7 +423,7 @@ Message next() {
                 Binder.flushPendingCommands();
             }
 			
-            nativePollOnce(ptr, nextPollTimeoutMillis); // 从native 层拿消息，比如 16ms 一次的 vsync 信号包装成的刷新界面消息
+            nativePollOnce(ptr, nextPollTimeoutMillis); // 这里进入 native 层，然后主线程休眠 nextPollTimeoutMillis 时间。唤醒的地方一般在 enqueueMessage 里，一个典型的例子就是底层发送的 VSYNC 信号包装成消息送入消息队列，然后从这里唤醒消息队列
 
             synchronized (this) {
                 // Try to retrieve the next message.  Return if found.
@@ -432,8 +437,10 @@ Message next() {
                     } while (msg != null && !msg.isAsynchronous()); // 取到下一个异步消息。异步消息指不受Looper同步屏障约束的消息
                 }
                 if (msg != null) {
-                    if (now < msg.when) { // 延时消息，时间还没到
-                        nextPollTimeoutMillis = (int) Math.min(msg.when - now, Integer.MAX_VALUE);
+                    if (now < msg.when) { 
+                        // 延时消息，时间还没到，使用 nextPollTimeoutMillis 记录下还需要多久才到时间，然后在下一轮循环中使用 
+                        // nativePollOnce(ptr, nextPollTimeoutMillis) 使线程休眠
+                        nextPollTimeoutMillis = (int) Math.min(msg.when - now, Integer.MAX_VALUE); 
                     } else {
                         // 取到消息
                         mBlocked = false;
@@ -527,7 +534,7 @@ void quit(boolean safe) {
     }
 ```
 
-再说一下 IdleHandler。IdleHandler 是一个接口，如下:
+再说一下 **IdleHandler**。IdleHandler 是一个接口，如下:
 
 ```java
     public static interface IdleHandler {
@@ -562,13 +569,38 @@ public final class Message implements Parcelable {
      public Object obj;
     public Messenger replyTo;
     ...
-     public long when;// 延时消息要用的时间
+     public long when;// (1) 消息发生的时间
      Bundle data;
  	Handler target; // 对应的 handler
  	Runnable callback; // 消息附带的 callback
  	Message next; // 指向下一个消息的引用
 }
 ```
+
+注意上述代码（1）处的 when 成员变量，这个变量代表了消息要发生的时间。在 `handler.post(Runnable r)` 函数内部会调用 sendMessageDelayed，如下：
+
+```java
+public final boolean sendMessageDelayed(@NonNull Message msg, long delayMillis) {
+        if (delayMillis < 0) {
+            delayMillis = 0;
+        }
+        return sendMessageAtTime(msg, SystemClock.uptimeMillis() + delayMillis);// (2)
+    }
+public boolean sendMessageAtTime(@NonNull Message msg, long uptimeMillis) {
+        MessageQueue queue = mQueue;
+        if (queue == null) {
+            RuntimeException e = new RuntimeException(
+                    this + " sendMessageAtTime() called with no mQueue");
+            Log.w("Looper", e.getMessage(), e);
+            return false;
+        }
+        return enqueueMessage(queue, msg, uptimeMillis); // (3)
+    }
+```
+
+代码 (2) 处决定了 Message 的 when 的值。对于非延时消息，就是 `SystemClock.uptimeMillis()`，即从系统 boot 起到当前的时间。如果是延时消息，则再加上需要延时的时间  `delayMillis` 。非延时消息的 `delayMillis` 值为 0 。
+
+上述代码 (3) 处会在 enqueueMessage 方法中把消息发生的时间 when 赋值为 入参 uptimeMillis。
 
 获取消息和回收消息：
 
@@ -643,6 +675,8 @@ void recycleUnchecked() {
     }
 ```
 
+
+
 消息分发：
 
 ```java
@@ -660,6 +694,8 @@ public void dispatchMessage(@NonNull Message msg) {
         }
     }
 ```
+
+
 
 消息发送
 
@@ -861,7 +897,7 @@ void dispatchAttachedToWindow(AttachInfo info, int visibility) {
 
 #### 7、同步屏障
 
-同步屏障消息就是 target == null 的消息，通过 MQ 的 postSyncBarrier() 方法可以给 MQ 队列里添加一个同步屏障。如果 MQ 中取消息，当前消息为同步屏障，则会跳过当前消息，先取到后面的异步消息执行。异步消息就创建 msg 时，调用 setAsynchronous(true) 将 mAsynchronous 置为 true 的消息。
+同步屏障消息就是 target == null 的消息，通过 MQ 的 postSyncBarrier() 方法可以给 MQ 队列里添加一个同步屏障。如果 MQ 中取消息，当前消息为同步屏障，则会跳过当前消息，先取到后面的异步消息执行。异步消息就是创建 msg 时，调用 setAsynchronous(true) 将 mAsynchronous 置为 true 的消息。
 
 https://juejin.im/post/6844903910113705998
 
