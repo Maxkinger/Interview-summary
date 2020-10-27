@@ -1166,3 +1166,29 @@ Activity 和 Fragment 的生命周期交互如下：
 
 ### 十二、Service & IntentService
 
+### 十三、Android 中用到的设计模式
+
+1、工厂模式
+
+* BitmapFactory
+
+2、建造者模式
+
+* Notification Builder
+
+3、观察者模式
+
+* Button.setOnClickListener
+
+4、装饰器模式
+
+* Context
+
+5、对象池模式
+
+* Handler.obtainMessage
+
+6、责任链模式
+
+* 事件分发机制
+
