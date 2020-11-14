@@ -282,7 +282,7 @@ val to = Container<Any>()
 copy(from, to) // 报错，from 是 Container<Int> 类型，而 to 是 Container<Any> 类型
 ```
 
-<img src="./image-20201011204330187.png" alt="image-20201011204330187" style="zoom: 50%;" />
+<img src="./fig/image-20201011204330187.png" alt="image-20201011204330187" style="zoom: 50%;" />
 
 这样使用的话，编译器报错，因为我们把两个不一样的类型做了赋值。用 kotlin 官方文档的话说，copy 函数在”干坏事“， 它尝试**写**一个 Any 类型的值给 from， 而我们用 Int 类型来接收这个值，如果编译器不报错，那么运行时将会抛出一个 `ClassCastException` 异常。
 
@@ -310,7 +310,7 @@ val to = Container<Any>()
 copy(from, to) //  报错
 ```
 
-<img src="./image-20201011210124162.png" alt="image-20201011210124162" style="zoom:50%;" />
+<img src="./fig/image-20201011210124162.png" alt="image-20201011210124162" style="zoom:50%;" />
 
 其实从上面可以看到，类型投影和 Java 的通配符很相似，也是一种**使用时型变**。
 
