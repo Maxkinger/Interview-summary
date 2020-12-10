@@ -67,3 +67,4 @@ class P extends A with X {} // 只有继承自 A 的类才能 with X
 class Q extends B with Y {} // 只有继承自 B 的类才能 with Y
 ```
 
+### 3、一个 widget 对应一个 BuildContext 实例，还是多个 widget 可以对应一个 BuildContext 实例？
