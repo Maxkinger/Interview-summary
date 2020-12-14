@@ -68,3 +68,5 @@ class Q extends B with Y {} // 只有继承自 B 的类才能 with Y
 ```
 
 ### 3、一个 widget 对应一个 BuildContext 实例，还是多个 widget 可以对应一个 BuildContext 实例？
+
+### 4、flutter 中使用到底如何使用 static、const、final 等关键字？
