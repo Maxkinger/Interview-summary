@@ -70,3 +70,34 @@ class Q extends B with Y {} // 只有继承自 B 的类才能 with Y
 ### 3、一个 widget 对应一个 BuildContext 实例，还是多个 widget 可以对应一个 BuildContext 实例？
 
 ### 4、flutter 中使用到底如何使用 static、const、final 等关键字？
+
+### 5、dart 不支持匿名内部类，只支持 lambda。dart 只能自己声明类，继承或实现另一个类，如下：
+
+```dart
+abstract class Event {
+  void run();
+}
+
+class _AnonymousEvent implements Event {
+  _AnonymousEvent({Function run}): _run = run;
+  final void Function() _run;
+
+  @override
+  void run() => _run();
+}
+
+// 使用
+Event event = _AnonymousEvent(run: () {});
+
+```
+
+### 6、flutter 中三棵树：widget 树、element 树和 renderObject 树的关系？
+
+| Widget                        | Element                        |                                                              |
+| ----------------------------- | ------------------------------ | ------------------------------------------------------------ |
+| LeafRenderObjectWidget        | LeafRenderObjectElement        | Widget树的叶子节点，用于没有子节点的widget，通常基础组件都属于这一类，如Image。 |
+| SingleChildRenderObjectWidget | SingleChildRenderObjectElement | 包含一个子Widget，如：ConstrainedBox、DecoratedBox等         |
+| MultiChildRenderObjectWidget  | MultiChildRenderObjectElement  | 包含多个子Widget，一般都有一个children参数，接受一个Widget数组。如Row、Column、Stack等 |
+
+这个问题搞得我头晕。。。
+
