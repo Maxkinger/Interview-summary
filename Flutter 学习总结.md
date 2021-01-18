@@ -101,3 +101,5 @@ Event event = _AnonymousEvent(run: () {});
 
 这个问题搞得我头晕。。。
 
+### 7、Flutter 的  ListView 怎么这么卡？
+
