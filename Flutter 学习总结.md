@@ -101,3 +101,4 @@ Event event = _AnonymousEvent(run: () {});
 
 这个问题搞得我头晕。。。
 
+### 7、flutter PointerEvent 事件冒泡机制，为什么是从下往上？这和 android 事件分发机制相反？
