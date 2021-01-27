@@ -102,3 +102,6 @@ Event event = _AnonymousEvent(run: () {});
 这个问题搞得我头晕。。。
 
 ### 7、flutter PointerEvent 事件冒泡机制，为什么是从下往上？这和 android 事件分发机制相反？
+### 8、Flutter 的  ListView 怎么这么卡？
+
+debug 模式下运行确实很卡，但是在 release 模式下运行就不卡了，tricky，应该是因为两者编译方式不同。
