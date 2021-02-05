@@ -105,3 +105,39 @@ Event event = _AnonymousEvent(run: () {});
 ### 8、Flutter 的  ListView 怎么这么卡？
 
 debug 模式下运行确实很卡，但是在 release 模式下运行就不卡了，tricky，应该是因为两者编译方式不同。
+
+### 9、Dart 的单例模式
+
+* dart 中的私有构造函数，只需要在构造函数名称前加 _。私有构造函数只对 library 私有，同一个 library 中的其他类仍然能够访问该构造函数。
+* 单例模式的标准做法就是 factory + static 变量
+
+```dart
+class Singleton {
+    // 私有构造函数
+    Singleton._internal();
+    // 保存单例
+    static Singleton _singleton = Singleton._internal();
+    // 工厂构造函数
+    factory Singleton() => _singleton;
+}
+// 定义一个top-level（全局）变量，页面引入该文件后可以直接使用bus
+var bus = Singleton();
+```
+
+### 10、Notification
+
+* 通知冒泡和触摸事件冒泡类似，都是从子节点向上逐层传递。
+
+  Flutter中很多地方使用了通知，如可滚动组件（Scrollable Widget）滑动时就会分发**滚动通知**（ScrollNotification），而 Scrollbar 正是通过监听 ScrollNotification 来确定滚动条位置的。
+
+* Flutter 的 UI 框架实现中，除了在可滚动组件在滚动过程中会发出`ScrollNotification`之外，还有一些其它的通知，如`SizeChangedLayoutNotification`、`KeepAliveNotification` 、`LayoutChangedNotification`等，Flutter正是通过这种通知机制来使父元素可以在一些特定时机来做一些事情。
+
+### 11、Flutter 嵌套太多 widget 会不会造成性能问题？
+
+参考：https://stackoverflow.com/questions/54193724/is-it-bad-to-have-a-lot-of-nested-widgets-with-flutter
+
+简而言之，不会，简单 widget 的深度嵌套是 flutter 所推荐的做法。
+
+flutter 的设计理念和 android 相反，flutter 认为“组合优于继承”，因此每一个 widget 都设计得十分轻量，方便快速构建。如果一个 widget 需要好几个功能，那么就组合多个轻量 widget 达到目的，而不是继承自某个 widget 再扩展功能。而 android 恰恰相反，它赋予了 View 这个最基本得视图类太多的东西，导致 View 的代码十分庞大。并且其余的控件全部要继承自 View，继承多而组合少。
+
+**疑问：Flutter 是如何在渲染嵌套繁多的 widget 树的时候保持高性能的呢？它的绘制流程是什么？**
