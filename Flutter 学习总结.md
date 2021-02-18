@@ -141,3 +141,6 @@ var bus = Singleton();
 flutter 的设计理念和 android 相反，flutter 认为“组合优于继承”，因此每一个 widget 都设计得十分轻量，方便快速构建。如果一个 widget 需要好几个功能，那么就组合多个轻量 widget 达到目的，而不是继承自某个 widget 再扩展功能。而 android 恰恰相反，它赋予了 View 这个最基本得视图类太多的东西，导致 View 的代码十分庞大。并且其余的控件全部要继承自 View，继承多而组合少。
 
 **疑问：Flutter 是如何在渲染嵌套繁多的 widget 树的时候保持高性能的呢？它的绘制流程是什么？**
+
+### 12、Dart 中的 export、part
+
