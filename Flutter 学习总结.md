@@ -144,3 +144,7 @@ flutter 的设计理念和 android 相反，flutter 认为“组合优于继承�
 
 ### 12、Dart 中的 export、part
 
+### 13、Android 有类似 flutter 中 json_model 的工具吗？
+
+GsonFormat 可以从 json 文件直接生成 Model class
+
