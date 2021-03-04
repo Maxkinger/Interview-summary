@@ -63,7 +63,7 @@
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
+        android:layout_height="240dp">
       ...
         <Button/>
       ...
@@ -80,19 +80,17 @@
 
 <img src="Android%20%E5%B5%8C%E5%A5%97%E6%BB%91%E5%8A%A8%E6%9C%BA%E5%88%B6.assets/enterAlways.gif" style="zoom: 33%;" />
 
-  看起来像带有 header 的 RecyclerView 在滑动，但其实是嵌套滑动。当然，如果要达到吸顶效果，只需要将顶部 tab 的
+  看起来像带有 header 的 RecyclerView 在滑动，但其实是嵌套滑动。当然，如果要达到吸顶效果，只需要将顶部 tab 的 button 属性添加 `app:layout_scrollFlags="scroll||enterAlwaysCollapsed"` 或 `app:layout_scrollFlags="scroll||enterAlways"` 即可，效果如下：
 
-  的 button 属性添加 `app:layout_scrollFlags="scroll||enterAlwaysCollapsed"` 或 `app:layout_scrollFlags="scroll||enterAlwaysCollapsed"` 即可，效果如下：
-
-​																								  <img src="Android%20%E5%B5%8C%E5%A5%97%E6%BB%91%E5%8A%A8%E6%9C%BA%E5%88%B6.assets/enterAlwaysCollapse.gif" style="zoom:33%;" />
+​																			       			 <img src="Android%20%E5%B5%8C%E5%A5%97%E6%BB%91%E5%8A%A8%E6%9C%BA%E5%88%B6.assets/enterAlwaysCollapse.gif" style="zoom:33%;" />
 
   `layout_scrollFlags` 和 `layout_behavior` 有很多可选值，配合起来可以实现多种效果，不只限于嵌套滑动。具体可以参考 API 文档。
 
-  使用 `CoordinatorLayout` 实现嵌套滑动比手动实现要好得多，既可以实现连贯的吸顶嵌套滑动，又支持 fling。而且是官方提供的布局，可以放心使用，出 bug 的几率很小，性能也不会有问题。不过也正是因为官方将其封装得很好，使用 `CoordinatorLayout` 很难实现比较复杂的嵌套滑动布局，比如多级嵌套滑动。
+使用 `CoordinatorLayout` 实现嵌套滑动比手动实现要好得多，既可以实现连贯的吸顶嵌套滑动，又支持 fling。而且是官方提供的布局，可以放心使用，出 bug 的几率很小，性能也不会有问题。不过也正是因为官方将其封装得很好，使用 `CoordinatorLayout` 很难实现比较复杂的嵌套滑动布局，比如多级嵌套滑动。
 
   #### 3、嵌套滑动组件 NestedScrollingParent 和 NestedScrollingChild
 
-​    `NestedScrollingParent ` 和 `NestedScrollingChild` 是 google 官方提供地一套专门用来解决嵌套滑动地组件。它们是两个接口，如下：
+ `NestedScrollingParent ` 和 `NestedScrollingChild` 是 google 官方提供地一套专门用来解决嵌套滑动地组件。它们是两个接口，如下：
 
 ```java
 public interface NestedScrollingParent2 extends NestedScrollingParent {
@@ -187,6 +185,7 @@ public boolean onTouchEvent(MotionEvent e) {
     ...
 }
 
+
 boolean scrollByInternal(int x, int y, MotionEvent ev) {
         int unconsumedX = 0;
         int unconsumedY = 0;
@@ -215,14 +214,13 @@ boolean scrollByInternal(int x, int y, MotionEvent ev) {
     }
 ```
 
-RecyclerView 是怎么调到父 View 的 `onNestedSroll` 和 `onNestedScroll` 的呢？分析一下 `dispatchNestedPreScroll` 的代码，如下，
+RecyclerView 是怎么调到父 View 的 `onNestedPreSroll` 和 `onNestedScroll` 的呢？分析一下 `dispatchNestedPreScroll` 的代码，如下，
 `dispatchNestedScroll` 的代码原理和此类似，不再贴出：
 
 ```java
 public boolean dispatchNestedPreScroll(int dx, int dy, int[] consumed, int[] offsetInWindow,
             int type) {
-        return getScrollingChildHelper().dispatchNestedPreScroll(dx, dy, consumed, offsetInWindow,
-                type);
+        return getScrollingChildHelper().dispatchNestedPreScroll(dx, dy, consumed, offsetInWindow,type);
     }
 
 // NestedScrollingChildHelper.java
