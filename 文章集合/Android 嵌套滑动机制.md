@@ -64,7 +64,9 @@
       <com.google.android.material.appbar.AppBarLayout
           android:layout_width="match_parent"
           android:layout_height="wrap_content">
-          ....
+        ...
+          <Button/>
+        ...
       </com.google.android.material.appbar.AppBarLayout>
   
           <RecyclerView
@@ -72,10 +74,37 @@
               android:layout_height="wrap_content"
               app:layout_behavior="@string/appbar_scrolling_view_behavior"/>
   
-  </androidx.coordinatorlayout.widget.CoordinatorLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>
   ```
 
+  `AppBarLayout` 就是嵌套滑动中父布局里需要上滑的顶部，在 RecyclerView 中指定 `behavior` 为 `appbar_scrolling_view_behavior` 就可以实现最简单的嵌套滑动，如下：
   
-
+  ！！！！！！！！！！！！！！！！
   
-
+  插入 gif 图
+  
+  ！！！！！！！！！！！！！！！！
+  
+  看起来像带有 header 的 RecyclerView 在滑动，但其实是嵌套滑动。当然，如果要达到吸顶效果，只需要将顶部 tab 的
+  
+  的 button 属性添加 `app:layout_scrollFlags="scroll||enterAlwaysCollapsed"` 或 `app:layout_scrollFlags="scroll||enterAlwaysCollapsed"` 即可，效果如下：
+  
+  ！！！！！！！！！！！！！！！！
+  
+  插入 gif 图
+  
+  ！！！！！！！！！！！！！！！！
+  
+  `layout_scrollFlags` 和 `layout_behavior` 有很多可选值，配合起来可以实现多种效果，不只限于嵌套滑动。具体可以参考 API 文档。
+  
+  使用 `CoordinatorLayout` 实现嵌套滑动比手动实现要好得多，既可以实现连贯的吸顶嵌套滑动，又支持 fling。而且是官方提供的布局，可以放心使用，出 bug 的几率很小，性能也不会有问题。不过也正是因为官方将其封装得很好，使用 `CoordinatorLayout` 很难实现比较复杂的嵌套滑动布局，比如多级嵌套滑动。
+  
+  **注意**
+  
+  使用 `CoordinatorLayout` 有一个地方需要注意，当它的子 View 是 RecyclerView 或者 ScrollView 这种 content 可以无限长的布局时，要注意限制这些子 View 的高度，不要使用 `wrap_content` 设置子 View 的高度，因为 `CoordinatorLayout` 在测量时给子 View 的限制是 `UNSPECIFIED`  ，即不做限制。像 RecyclerView 如果内部 item 数量太多，RecyclerView 在 `wrap_content` 的情况下会把所有 item 都显示出来，相当于没有回收。这样会对内存造成很大消耗，如果调用 `setVisibility` 改变可见性的话，当从不可见到可见，更是会瞬间调用所有 item 的测量布局流程，造成卡顿。负一屏之前新闻列表开关的卡顿就是这个原因造成的。
+  
+  #### 3、嵌套滑动组件 NestedScrollingParent 和 NestedScrollingChild
+  
+  
+  
+  
