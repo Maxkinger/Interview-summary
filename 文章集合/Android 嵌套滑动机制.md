@@ -78,21 +78,13 @@
 
 `AppBarLayout` 就是嵌套滑动中父布局里需要上滑的顶部，在 RecyclerView 中指定 `behavior` 为 `appbar_scrolling_view_behavior` 就可以实现最简单的嵌套滑动，如下：
 
-  ！！！！！！！！！！！！！！！！
-
-  插入 gif 图
-
-  ！！！！！！！！！！！！！！！！
+<img src="Android%20%E5%B5%8C%E5%A5%97%E6%BB%91%E5%8A%A8%E6%9C%BA%E5%88%B6.assets/enterAlways.gif" style="zoom: 33%;" />
 
   看起来像带有 header 的 RecyclerView 在滑动，但其实是嵌套滑动。当然，如果要达到吸顶效果，只需要将顶部 tab 的
 
   的 button 属性添加 `app:layout_scrollFlags="scroll||enterAlwaysCollapsed"` 或 `app:layout_scrollFlags="scroll||enterAlwaysCollapsed"` 即可，效果如下：
 
-  ！！！！！！！！！！！！！！！！
-
-  插入 gif 图
-
-  ！！！！！！！！！！！！！！！！
+​																								  <img src="Android%20%E5%B5%8C%E5%A5%97%E6%BB%91%E5%8A%A8%E6%9C%BA%E5%88%B6.assets/enterAlwaysCollapse.gif" style="zoom:33%;" />
 
   `layout_scrollFlags` 和 `layout_behavior` 有很多可选值，配合起来可以实现多种效果，不只限于嵌套滑动。具体可以参考 API 文档。
 
