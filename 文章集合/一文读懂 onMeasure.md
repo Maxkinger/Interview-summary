@@ -208,4 +208,138 @@ public static int getChildMeasureSpec(int spec, int padding, int childDimension)
 
   如果所有的 View 的 dimension 只能设置为固定的数值，那么其实子 View 的 `MeasureSpec` 就和父 View 无关了。正如上面代码中，当 `childDimension >= 0` 时，子 View 的 `MeasureSpec` 始终由 `childDimension` 和 `MeasureSpec.EXACTLY` 组成。
 
-* 
+* `AT_MOST` 和 `WRAP_CONTENT` 的关系
+
+  网上有很多文章说，当一个 View 的尺寸设置为 `WRAP_CONTENT` 时，它的 `MeasureSpec.MODE` 就是`AT_MOST`。这并不准确。首先，当父 View 的 MODE 是 `UNSPECIFIED` 时，子 View 设置为 `WRAP_CONTENT` 或 `MATCH_PARENT`，那么子 View 的 MODE 也都是 `UNSPECIIED`。其次，当父 View 是 `AT_MOST` 的时候，子 View 的 `childDimension` 即使是 `MATCH_PARENT`, 子 View 的 MODE 也是`AT_MOST`。所以 `AT_MOST` 与 `WARP_CONTENT` 并不是一一对应的关系。
+
+  看起来有点乱，但是只要始终抓住关键点，即 `AT_MOST` 意味着这个 View 的尺寸有上限，最大不能超过 `MeasureSpec.SIZE` 的值。那具体的值是多少呢？这就要看在 `onMeasure` 中是如何设置 View 的尺寸了。对于一般的视图控件的 `onMeasure` 逻辑，当它的 `MeasureSpec.MODE` 是 `AT_MOST` 的时候，意味着它的大小就是包裹内容的大小，但是最大不能超过 `MeasureSpec.SIZE`，类似于给 View 同时设置 `WRAP_CONENT` 和 `maxHeight`/`maxWidth`。
+
+* `UNSPECIFIED` 什么时候用到？
+
+  网上很多讲解绘制流程的文章，对于 `UNSPECIFIED` 都是一笔带过，并没有讲得很清楚。`UNSPECIFIED`，顾名思义，不指定尺寸。当一个 View 的 `MeasureSpec.MODE` 是 `UNSPECIFIED` 的时候，说明父 View 对它的尺寸没有任何约束。实际上 android 中使用到 `UNSPECIFIED` 的控件很少，只有 ScrollView、RecyclerView 这类可以滑动的 View 会用到，因为它们的子 View (也就是滑动的内容) 可以无限高，比父 View (视口，ViewPort) 高得多。
+
+  比如 ScrollView 给子 View 施加约束时：
+
+  ```java
+  protected void measureChildWithMargins(View child, int parentWidthMeasureSpec, int widthUsed,
+              int parentHeightMeasureSpec, int heightUsed) {
+          final MarginLayoutParams lp = (MarginLayoutParams) child.getLayoutParams();
+  
+          final int childWidthMeasureSpec = getChildMeasureSpec(parentWidthMeasureSpec,
+                  mPaddingLeft + mPaddingRight + lp.leftMargin + lp.rightMargin
+                          + widthUsed, lp.width);
+          final int usedTotal = mPaddingTop + mPaddingBottom + lp.topMargin + lp.bottomMargin +
+                  heightUsed;
+      // 这里直接构造了一个 UNSPECIFIED 的 MeasureSpec 用来测量子 View
+          final int childHeightMeasureSpec = MeasureSpec.makeSafeMeasureSpec(
+                  Math.max(0, MeasureSpec.getSize(parentHeightMeasureSpec) - usedTotal),
+                  MeasureSpec.UNSPECIFIED);
+  
+          child.measure(childWidthMeasureSpec, childHeightMeasureSpec);
+      }
+  ```
+
+### 三、onMeasure 过程
+
+前面我们明白了 `onMeasure` 方法的入参 `MeasureSpec` 到底是怎样得到的，现在我们把重点转移到 `onMeasure` 过程。
+
+当然你可能会疑惑，之前不是已经得到了 `MeasureSpec` 吗，`MeasureSpec` 内部不是已经有了尺寸的信息吗，为什么还要再测量呢？
+
+首先，`MeasureSpec` 中的尺寸并不能理解成 View 的实际尺寸，`MeasureSpec` 更多的是作为一种父 View 对子 View 测量的**约束**。当子 View 要进行测量时，必须要知道这个约束。而子 View 具体要有多大，是要依赖 `onMeasure` 的逻辑确定的。你当然可以完全不理会这个约束，在 `onMeasure` 中通过 `setMeasuredDimension` 方法随意给 View 设置大小，但是一般是不会这样做的，除非父 View 给你的约束是 `UNSPEECIFIED`。
+
+先来看看最简单的 View.java 中的 `onMeasure` 方法实现：
+
+```java
+protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        setMeasuredDimension(getDefaultSize(getSuggestedMinimumWidth(), widthMeasureSpec),
+                getDefaultSize(getSuggestedMinimumHeight(), heightMeasureSpec));
+    }
+```
+
+可以看到，在 View 的 `onMeasure` 中，是通过 `getDefaultSize` 来确定大小的，然后使用 `setMeasuredDimension` 来设置 View 的宽高。
+
+`getDefaultSize` 方法如下：
+
+```java
+public static int getDefaultSize(int size, int measureSpec) {
+        int result = size;
+        int specMode = MeasureSpec.getMode(measureSpec);
+        int specSize = MeasureSpec.getSize(measureSpec);
+
+        switch (specMode) {
+        case MeasureSpec.UNSPECIFIED:
+            result = size;
+            break;
+        case MeasureSpec.AT_MOST:
+        case MeasureSpec.EXACTLY:
+            result = specSize;
+            break;
+        }
+        return result;
+    }
+```
+
+逻辑很好懂。当 `specMode` 是 `UNSPECIFIED` 的时候，使用 `getSuggestedMinimumWidth`/`getSuggestedMinimumHeight` 返回的尺寸；当 `specMode` 是 `AT_MOST` 或 `EXACTLY` 的时候，使用 `specSize`，即 `MeasureSpec.SIZE`。
+
+从上一节中我们知道，当子 View 的 dimension 是 `WRAP_CONTENT` 而父 View 的 `specMode` 是 `EXACTLY` 或 `AT_MOST` 的时候，子 View 的 `specMode` 也是 `AT_MOST`。而在上面的代码中，当 View 的 `specMode` 是 `AT_MOST` 的时候，却直接将 `specSize` 返回了，和 `EXACTLY` 处理方式一样。这意味着，View 这个类在 xml 中设置 `WRAP_CONTENT` 和 `MATCH_PARENT` 的效果是一样的。当然这很好理解，因为单纯的 View 类说白了只是一个矩形，并没有“内容”。
+
+不过也正因如此，在我们自己自定义 View 的时候，如果不复写 `onMeasure` 的话，那么 `WARP_CONTENT` 就是没有效果的。所以自定义 View 如果想有 `WRAP_CONTENT` 的效果，那么需要重写 `onMeasure` 并对 `specMode` 为 `AT_MOST` 的情况做处理（当父 View 是可滑动的View 时，`WRAP_CONTENT` 还有可能对应 `UNSPECIFIED` 的 `specMode`, 所以最好也处理这种情况）。
+
+举个例子，比如 TextView 的 `onMeasure` 方法。当我们给 TextView 设置 `WRAP_CONTENT` 的时候，我们很自然的会想让 TextView 的宽度包裹它内部的文字。来看看它的 `onMeasure` 实现：
+
+```java
+protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+    int widthMode = MeasureSpec.getMode(widthMeasureSpec);
+    int widthSize = MeasureSpec.getSize(widthMeasureSpec);
+    ...
+    int width;
+    ...
+    if (widthMode == MeasureSpec.EXACTLY) {
+            // Parent has told us how big to be. So be it.
+            width = widthSize;
+        } else {
+        // 如果 widthMode == MeasureSpec.AT_MOST || MeasureSpec.UNSPECIFIED
+            if (mLayout != null && mEllipsize == null) {
+                des = desired(mLayout);
+            }
+			...
+        	width = des;
+            ...
+   ...
+   setMeasuredDimension(width, height);
+}
+```
+
+可以看到，当 `widthMode == MeasureSpec.AT_MOST` 时，通过 `desired(Layout layout)` 方法来计算得到 width。`desired` 方法实现如下：
+
+```java
+private static int desired(Layout layout) {
+        int n = layout.getLineCount();
+        CharSequence text = layout.getText();
+        float max = 0;
+
+        // if any line was wrapped, we can't use it.
+        // but it's ok for the last line not to have a newline
+
+        for (int i = 0; i < n - 1; i++) {
+            if (text.charAt(layout.getLineEnd(i) - 1) != '\n') {
+                return -1;
+            }
+        }
+
+        for (int i = 0; i < n; i++) {
+            max = Math.max(max, layout.getLineWidth(i));
+        }
+
+        return (int) Math.ceil(max);
+    }
+```
+
+逻辑简单明了，就是取所有文字行的最大行宽。
+
+所以 `onMeasure` 总结起来就是，根据父 View 对自己的约束(`widthMeasureSpec` 和 `heightMeasureSpec`)，结合自身的特性，计算出尺寸并用 `setMeasuredDimension` 赋值。
+
+ViewGroup 的 `onMeasuer` 逻辑和 View 类似，只不过 ViewGroup 一般需要先计算子 View 的尺寸才能确定自身尺寸。比如 LinearLayout `WRAP_CONTENT` 需要先知道子 View 们的高度，加起来才能确定自己多高。
+
+### 四、最初的 MeasureSpec
+
