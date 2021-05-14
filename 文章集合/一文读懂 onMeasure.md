@@ -341,5 +341,77 @@ private static int desired(Layout layout) {
 
 ViewGroup 的 `onMeasuer` 逻辑和 View 类似，只不过 ViewGroup 一般需要先计算子 View 的尺寸才能确定自身尺寸。比如 LinearLayout `WRAP_CONTENT` 需要先知道子 View 们的高度，加起来才能确定自己多高。
 
-### 四、最初的 MeasureSpec
+### 四、最顶层的 MeasureSpec
+
+前面我们知道，子 View 在 `onMeasure` 方法中传入的 `measureSpec` 参数是由父 View 的 ` measureSpec` 和 子 View 的 `childDimension` 共同计算得到的约束。而父 View 的 `measureSpec` 是由父 View 的父 View 计算来的。这样形成了一个链条。那这个链条的头在哪里呢，最顶端的根 View 的在 `onMeasure` 的时候它的入参 `measureSpec` 是从哪里来的呢？
+
+对一个 Activity 来说，最顶层的 View 是 `DecorView`，引用关系如下：
+
+> Activity -> WindowManager -> ViewRootImpl -> DecorView
+
+当 Activity 通过 WindowManager 将 `DecorView` 添加到 window 中时，会调用 ViewRootImpl 的 `setView` 方法，持有 `DecorView` ，如下：
+
+```java
+// WindowManagerGlobal.java
+public void addView(View view, ViewGroup.LayoutParams params,
+            Display display, Window parentWindow, int userId) { 
+    ...
+    root = new ViewRootImpl(view.getContext(), display);
+
+    view.setLayoutParams(wparams);
+
+    mViews.add(view);
+    mRoots.add(root);
+    mParams.add(wparams);
+    ...
+}
+```
+
+测量过程正是由 ViewRootImpl 发起。也就是说，最顶部的 `DecorView` 在 `measure` 过程中使用的 `measureSpec` 就是由 ViewRootImpl 传入的。这个过程在 ViewRootImple 的 `performTraversals` :
+
+```java
+private void performTraversals() {
+    if (mWidth != frame.width() || mHeight != frame.height()) {
+                mWidth = frame.width();
+                mHeight = frame.height();
+    }
+    ...
+    int childWidthMeasureSpec = getRootMeasureSpec(mWidth, lp.width);
+    int childHeightMeasureSpec = getRootMeasureSpec(mHeight, lp.height);
+    // Ask host how big it wants to be
+    performMeasure(childWidthMeasureSpec, childHeightMeasureSpec);
+    ...
+}
+
+ private static int getRootMeasureSpec(int windowSize, int rootDimension) {
+        int measureSpec;
+        switch (rootDimension) {
+
+        case ViewGroup.LayoutParams.MATCH_PARENT:
+            // Window can't resize. Force root view to be windowSize.
+            measureSpec = MeasureSpec.makeMeasureSpec(windowSize, MeasureSpec.EXACTLY);
+            break;
+        case ViewGroup.LayoutParams.WRAP_CONTENT:
+            // Window can resize. Set max size for root view.
+            measureSpec = MeasureSpec.makeMeasureSpec(windowSize, MeasureSpec.AT_MOST);
+            break;
+        default:
+            // Window wants to be an exact size. Force root view to be that size.
+            measureSpec = MeasureSpec.makeMeasureSpec(rootDimension, MeasureSpec.EXACTLY);
+            break;
+        }
+        return measureSpec;
+    }
+
+private void performMeasure(int childWidthMeasureSpec, int childHeightMeasureSpec) {
+        if (mView == null) {
+            return;
+        }
+    	mView.measure(childWidthMeasureSpec, childHeightMeasureSpec);
+    }
+```
+
+可以看到，最顶层的 `measureSpec` 通过 `getRootMeasureSpec` 方法构造的，然后在 `performMeasure` 中传递给 `mView`（就是 `DecorView`）去进行 `measure` 操作。
+
+`getRootMeasureSpec` 方法中，`mWidth/mHeight` 一般是屏幕的宽/高，而 `rootDimension` 是 `DecorView` 的 `layout_width` 和 `layout_height`。这两个值在 WindowManager 调用 `addView` 的时候就已经确定了，是 `MATCH_PARENT`。所以最终得到的是 `MeasureSpec.makeMeasureSpec(windowSize, MeasureSpec.EXACTLY);` 构造的 MeasureSpec，也就是说，`DecorView` 的尺寸约束是确切的宽高值，并且是屏幕宽高。这是很合理的，因为最顶层的 View 就应该是屏幕大小。
 
