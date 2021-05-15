@@ -1,4 +1,4 @@
-## 一文读懂 onMeasure
+## 一文理解 onMeasure
 
 记得我刚接触自定义 View 的时候，关于 View 的测量、布局、绘制三大流程，最难懂的就是 `onMeasure` 过程。相比于 `onLayout` 和 `onDraw` 只关注当前 View 的逻辑，`onMeasure` 往往要处理父 View 和子 View 之间关系，这让 `onMeasure` 理解和实践起来都变得更难了一些。当时并没有理解的很透彻，不过还是能做的。后来随着经验提高，慢慢搞清楚了 `onMeasure` 过程，并且发现网上很多关于 `onMeasure` 的一些说法都是错的，或者说不准确的。
 
@@ -76,8 +76,6 @@ protected void measureChildWithMargins(View child,
 ```
 
 该方法的最后一句就是调用 LinearLayout 的子 View 的 `measure` 方法，并把计算得到的 `measureSpec` 传入该方法。这里要注意的是，虽然子 View 在 `onMeasure` 过程中的 `measureSpec` 是由父 View 传进来的，但是这个 `measureSpec` 本身是属于子 View 的，它内部包含的仅仅是子 View 的尺寸信息。只不过在得到这个子 View 尺寸信息的过程中，需要借助父 View。
-
-
 
 ### 二、MeasureSpec 如何计算
 
@@ -210,15 +208,31 @@ public static int getChildMeasureSpec(int spec, int padding, int childDimension)
 
 * `AT_MOST` 和 `WRAP_CONTENT` 的关系
 
-  网上有很多文章说，当一个 View 的尺寸设置为 `WRAP_CONTENT` 时，它的 `MeasureSpec.MODE` 就是`AT_MOST`。这并不准确。首先，当父 View 的 MODE 是 `UNSPECIFIED` 时，子 View 设置为 `WRAP_CONTENT` 或 `MATCH_PARENT`，那么子 View 的 MODE 也都是 `UNSPECIIED`。其次，当父 View 是 `AT_MOST` 的时候，子 View 的 `childDimension` 即使是 `MATCH_PARENT`, 子 View 的 MODE 也是`AT_MOST`。所以 `AT_MOST` 与 `WARP_CONTENT` 并不是一一对应的关系。
+  网上有很多文章说，当一个 View 的尺寸设置为 `WRAP_CONTENT` 时，它的 `MeasureSpec.MODE` 就是 `AT_MOST`。这并不准确。首先，当父 View 的 MODE 是 `UNSPECIFIED` 时，子 View 设置为 `WRAP_CONTENT` 或 `MATCH_PARENT`，那么子 View 的 MODE 也都是 `UNSPECIIED` 而不是 `AT_MOST`。其次，当父 View 是 `AT_MOST` 的时候，子 View 的 `childDimension` 即使是 `MATCH_PARENT`, 子 View 的 MODE 也是`AT_MOST`。所以 `AT_MOST` 与 `WARP_CONTENT` 并不是一一对应的关系。
 
   看起来有点乱，但是只要始终抓住关键点，即 `AT_MOST` 意味着这个 View 的尺寸有上限，最大不能超过 `MeasureSpec.SIZE` 的值。那具体的值是多少呢？这就要看在 `onMeasure` 中是如何设置 View 的尺寸了。对于一般的视图控件的 `onMeasure` 逻辑，当它的 `MeasureSpec.MODE` 是 `AT_MOST` 的时候，意味着它的大小就是包裹内容的大小，但是最大不能超过 `MeasureSpec.SIZE`，类似于给 View 同时设置 `WRAP_CONENT` 和 `maxHeight`/`maxWidth`。
+
+  **Tips:** 借助`AT_MOST`的特性，可以实现有用的功能。比如需要一个 `WRAP_CONTENT` 的 RecyclerView，它的高度随 item 数目增加而变高，但是有最大高度的限制，超过这个高度不再增加。要实现这样一个 RecyclerView，在 xml 里给 RecyclerView 设置 `android:maxHeight` 是不管用的。但是我们可以继承 RecyclerView 并重写 `onMeasure` 方法，只需要将 
+
+  `heightSpecMode` 改成 `AT_MOST` 即可，如下：
+
+  ```java
+  public class MyRecyclerView extends RecyclerView {
+      ...
+      @Override
+      protected void onMeasure(int widthSpec, int heightSpec) {
+       		// 构造一个 mode 为 AT_MOST 的 heightSpec，size 为你想要的最大高度，然后传入到 super 中即可
+          int newHeightSpec = MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.AT_MOST);
+          super.onMeasure(widthSpec, newHeightSpec);
+      }
+  }
+  ```
 
 * `UNSPECIFIED` 什么时候用到？
 
   网上很多讲解绘制流程的文章，对于 `UNSPECIFIED` 都是一笔带过，并没有讲得很清楚。`UNSPECIFIED`，顾名思义，不指定尺寸。当一个 View 的 `MeasureSpec.MODE` 是 `UNSPECIFIED` 的时候，说明父 View 对它的尺寸没有任何约束。实际上 android 中使用到 `UNSPECIFIED` 的控件很少，只有 ScrollView、RecyclerView 这类可以滑动的 View 会用到，因为它们的子 View (也就是滑动的内容) 可以无限高，比父 View (视口，ViewPort) 高得多。
 
-  比如 ScrollView 给子 View 施加约束时：
+  比如 ScrollView 给子 View 施加约束时，就直接构造了一个 `UNSPECIFIED` 的 `MeasureSpec` 来测量子 View：
 
   ```java
   protected void measureChildWithMargins(View child, int parentWidthMeasureSpec, int widthUsed,
@@ -234,7 +248,6 @@ public static int getChildMeasureSpec(int spec, int padding, int childDimension)
           final int childHeightMeasureSpec = MeasureSpec.makeSafeMeasureSpec(
                   Math.max(0, MeasureSpec.getSize(parentHeightMeasureSpec) - usedTotal),
                   MeasureSpec.UNSPECIFIED);
-  
           child.measure(childWidthMeasureSpec, childHeightMeasureSpec);
       }
   ```
@@ -281,7 +294,7 @@ public static int getDefaultSize(int size, int measureSpec) {
 
 逻辑很好懂。当 `specMode` 是 `UNSPECIFIED` 的时候，使用 `getSuggestedMinimumWidth`/`getSuggestedMinimumHeight` 返回的尺寸；当 `specMode` 是 `AT_MOST` 或 `EXACTLY` 的时候，使用 `specSize`，即 `MeasureSpec.SIZE`。
 
-从上一节中我们知道，当子 View 的 dimension 是 `WRAP_CONTENT` 而父 View 的 `specMode` 是 `EXACTLY` 或 `AT_MOST` 的时候，子 View 的 `specMode` 也是 `AT_MOST`。而在上面的代码中，当 View 的 `specMode` 是 `AT_MOST` 的时候，却直接将 `specSize` 返回了，和 `EXACTLY` 处理方式一样。这意味着，View 这个类在 xml 中设置 `WRAP_CONTENT` 和 `MATCH_PARENT` 的效果是一样的。当然这很好理解，因为单纯的 View 类说白了只是一个矩形，并没有“内容”。
+从上一节中我们知道，当子 View 的 dimension 是 `WRAP_CONTENT`， 而父 View 的 `specMode` 是 `EXACTLY` 或 `AT_MOST` 的时候，子 View 的 `specMode` 也是 `AT_MOST`。而在上面的代码中，当 View 的 `specMode` 是 `AT_MOST` 的时候，却直接将 `specSize` 返回了，和 `EXACTLY` 处理方式一样。这意味着，View 这个类在 xml 中设置 `WRAP_CONTENT` 和 `MATCH_PARENT` 的效果是一样的。当然这很好理解，因为单纯的 View 类说白了只是一个矩形，并没有“内容”。
 
 不过也正因如此，在我们自己自定义 View 的时候，如果不复写 `onMeasure` 的话，那么 `WARP_CONTENT` 就是没有效果的。所以自定义 View 如果想有 `WRAP_CONTENT` 的效果，那么需要重写 `onMeasure` 并对 `specMode` 为 `AT_MOST` 的情况做处理（当父 View 是可滑动的View 时，`WRAP_CONTENT` 还有可能对应 `UNSPECIFIED` 的 `specMode`, 所以最好也处理这种情况）。
 
@@ -415,3 +428,14 @@ private void performMeasure(int childWidthMeasureSpec, int childHeightMeasureSpe
 
 `getRootMeasureSpec` 方法中，`mWidth/mHeight` 一般是屏幕的宽/高，而 `rootDimension` 是 `DecorView` 的 `layout_width` 和 `layout_height`。这两个值在 WindowManager 调用 `addView` 的时候就已经确定了，是 `MATCH_PARENT`。所以最终得到的是 `MeasureSpec.makeMeasureSpec(windowSize, MeasureSpec.EXACTLY);` 构造的 MeasureSpec，也就是说，`DecorView` 的尺寸约束是确切的宽高值，并且是屏幕宽高。这是很合理的，因为最顶层的 View 就应该是屏幕大小。
 
+### 五、总结
+
+* 子 View 在 `onMeasure` 方法中使用的 `MeasureSpec` 来自父 View，而父 View 的 `MeasureSpec` 来自父 View 的父 View，这是一个链条。之所以子 View 尺寸要受到父 View 的约束，是因为 `MATCH_PARENT` 和 `WRAP_CONTENT` 的存在。如果子 View 的尺寸只能设置为固定的 dp 值，
+
+  那父 View 对子 View 的约束就意义不大了。
+
+* 子 View 的 `MeasureSpec` 是由子 View 的 `dimension` 和父 View 的 `MeasureSpec` 共同计算得来的。子 View 的 `dimension` 就是子 View 在 xml 中设置的 `android:layout_height/android:layout_width`。注意，`WRAP_CONTENT` 和 `MATCH_PARENT`  也是 `dimension`，是尺寸，不是 `MeasureSpec.MODE`，它们是两个概念，不要弄混，虽然这两者之间有关系。
+
+* 虽然 `MeasureSpec` 中已经包含了尺寸约束信息，但是子 View 仍然需要在 `onMeasure` 中进一步确定子 View 具体应该有多大。比如上文提到的 TextView 的例子。一般来说，自定义 View 是需要自己处理子 View 的 `specMode` 为 `AT_MOST` 的情况的，因为 View 类本身没有处理这个情况，会导致 `WRAP_CONTENT`  失效。
+
+* 在链条最顶端的 `DecorView ` 的 `MeasureSpec` 来自 `ViewRootImpl` 在 `performMeasure` 方法中构造的 `MeasureSpec`。这个 `MeasureSpec` 的 `SIZE`是屏幕宽高，`MODE` 是 `EXACTLY`。
