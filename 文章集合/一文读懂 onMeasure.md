@@ -120,8 +120,8 @@ public static int getChildMeasureSpec(int spec, int padding, int childDimension)
 * `UNSPECIFIED`
 
   表示当前 View 的尺寸不受父 View 的限制，想要多大就可以多大。这种情况下，`SIZE` 的值意义不大。一般来说，可滑动的父布局对子 View 施加的约束就是 `UNSPECIFIED` ，比如 ScrollView 和 RecyclerView。在滑动时，实际上是让子 View 在它们的内部滚动，这意味着它们的子 View 的尺寸要大于父 View，所以父 View 不应该对子 View 施加尺寸的约束。
-
-注意，这里的 `SIZE` 是通过 `getChildMeasureSpec` 方法计算出来的，有可能是子 View 在 xml 中设置的尺寸，也有可能是父 View 的尺寸，还有可能是 0。
+  
+  注意，这里的 `SIZE` 是通过 `getChildMeasureSpec` 方法计算出来的，有可能是子 View 在 xml 中设置的尺寸，也有可能是父 View 的尺寸，还有可能是 0。
 
 回到 `getChildMeasureSpec` 方法，该方法的代码如下：
 
@@ -200,13 +200,13 @@ public static int getChildMeasureSpec(int spec, int padding, int childDimension)
 
 这里我不再对每一个情况解释了，代码中的注释已经写的很清楚了。我提一些其他的点：
 
-* 为什么子 View 的 `MeasureSpec` 需要由父 View 共同确定？
+* **为什么子 View 的 `MeasureSpec` 需要由父 View 共同确定？**
 
   很大程度上是因为 `MATCH_PARENT` 和 `WRAP_CONTENT` 的存在，因为这两个 dimension 需要借助父 View 才能确定。`MATCH_PARENT` 需要知道父 View 有多大才能匹配到父 View 的大小；而 `WRAP_CONTENT` 虽然表示子 View 的尺寸由自己决定，但是这个大小不能超过父 View 的大小。
 
   如果所有的 View 的 dimension 只能设置为固定的数值，那么其实子 View 的 `MeasureSpec` 就和父 View 无关了。正如上面代码中，当 `childDimension >= 0` 时，子 View 的 `MeasureSpec` 始终由 `childDimension` 和 `MeasureSpec.EXACTLY` 组成。
 
-* `AT_MOST` 和 `WRAP_CONTENT` 的关系
+* **`AT_MOST` 和 `WRAP_CONTENT` 的关系**
 
   网上有很多文章说，当一个 View 的尺寸设置为 `WRAP_CONTENT` 时，它的 `MeasureSpec.MODE` 就是 `AT_MOST`。这并不准确。首先，当父 View 的 MODE 是 `UNSPECIFIED` 时，子 View 设置为 `WRAP_CONTENT` 或 `MATCH_PARENT`，那么子 View 的 MODE 也都是 `UNSPECIIED` 而不是 `AT_MOST`。其次，当父 View 是 `AT_MOST` 的时候，子 View 的 `childDimension` 即使是 `MATCH_PARENT`, 子 View 的 MODE 也是`AT_MOST`。所以 `AT_MOST` 与 `WARP_CONTENT` 并不是一一对应的关系。
 
@@ -228,7 +228,7 @@ public static int getChildMeasureSpec(int spec, int padding, int childDimension)
   }
   ```
 
-* `UNSPECIFIED` 什么时候用到？
+* **`UNSPECIFIED` 什么时候用到？**
 
   网上很多讲解绘制流程的文章，对于 `UNSPECIFIED` 都是一笔带过，并没有讲得很清楚。`UNSPECIFIED`，顾名思义，不指定尺寸。当一个 View 的 `MeasureSpec.MODE` 是 `UNSPECIFIED` 的时候，说明父 View 对它的尺寸没有任何约束。实际上 android 中使用到 `UNSPECIFIED` 的控件很少，只有 ScrollView、RecyclerView 这类可以滑动的 View 会用到，因为它们的子 View (也就是滑动的内容) 可以无限高，比父 View (视口，ViewPort) 高得多。
 
@@ -383,6 +383,7 @@ public void addView(View view, ViewGroup.LayoutParams params,
 测量过程正是由 ViewRootImpl 发起。也就是说，最顶部的 `DecorView` 在 `measure` 过程中使用的 `measureSpec` 就是由 ViewRootImpl 传入的。这个过程在 ViewRootImple 的 `performTraversals` :
 
 ```java
+// ViewRootImpl.java
 private void performTraversals() {
     if (mWidth != frame.width() || mHeight != frame.height()) {
                 mWidth = frame.width();
@@ -432,5 +433,6 @@ private void performMeasure(int childWidthMeasureSpec, int childHeightMeasureSpe
 
 * 子 View 在 `onMeasure` 方法中使用的 `MeasureSpec` 来自父 View，而父 View 的 `MeasureSpec` 来自父 View 的父 View，这是一个链条。之所以子 View 尺寸要受到父 View 的约束，是因为 `MATCH_PARENT` 和 `WRAP_CONTENT` 的存在。如果子 View 的尺寸只能设置为固定的 dp 值，那父 View 对子 View 的约束就意义不大了。
 * 子 View 的 `MeasureSpec` 是由子 View 的 `dimension` 和父 View 的 `MeasureSpec` 共同计算得来的。子 View 的 `dimension` 就是子 View 在 xml 中设置的 `android:layout_height/android:layout_width`。注意，`WRAP_CONTENT` 和 `MATCH_PARENT`  也是 `dimension`，是尺寸，不是 `MeasureSpec.MODE`，它们是两个概念，不要弄混，虽然这两者之间有关系。
+* `WRAP_CONTENT` 和 `AT_MOST` 不是一一对应的关系。`UNSPECIFIED`一般只用于可滑动的 View。
 * 虽然 `MeasureSpec` 中已经包含了尺寸约束信息，但是子 View 仍然需要在 `onMeasure` 中进一步确定子 View 具体应该有多大。比如上文提到的 TextView 的例子。一般来说，自定义 View 是需要自己处理 `specMode` 为 `AT_MOST` 的情况的，因为 View 类本身没有处理这个情况，会导致 `WRAP_CONTENT`  失效。
 * 在链条最顶端的 `DecorView ` 的 `MeasureSpec` 就是 `ViewRootImpl` 在 `performMeasure` 方法中构造的 `MeasureSpec`。这个 `MeasureSpec` 的 `SIZE`是屏幕宽高，`MODE` 是 `EXACTLY`。
