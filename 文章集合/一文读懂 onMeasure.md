@@ -426,16 +426,11 @@ private void performMeasure(int childWidthMeasureSpec, int childHeightMeasureSpe
 
 可以看到，最顶层的 `measureSpec` 通过 `getRootMeasureSpec` 方法构造的，然后在 `performMeasure` 中传递给 `mView`（就是 `DecorView`）去进行 `measure` 操作。
 
-`getRootMeasureSpec` 方法中，`mWidth/mHeight` 一般是屏幕的宽/高，而 `rootDimension` 是 `DecorView` 的 `layout_width` 和 `layout_height`。这两个值在 WindowManager 调用 `addView` 的时候就已经确定了，是 `MATCH_PARENT`。所以最终得到的是 `MeasureSpec.makeMeasureSpec(windowSize, MeasureSpec.EXACTLY);` 构造的 MeasureSpec，也就是说，`DecorView` 的尺寸约束是确切的宽高值，并且是屏幕宽高。这是很合理的，因为最顶层的 View 就应该是屏幕大小。
+`getRootMeasureSpec` 方法中，`mWidth/mHeight` 一般是屏幕的宽/高，而 `rootDimension` 是 `DecorView` 的 `layout_width` 和 `layout_height`。这两个值在 WindowManager 调用 `addView` 的时候就已经确定了，是 `MATCH_PARENT`。所以最终得到的是代码 `MeasureSpec.makeMeasureSpec(windowSize, MeasureSpec.EXACTLY);` 构造的 MeasureSpec，也就是说，`DecorView` 的尺寸约束是确切的宽高值，并且是屏幕宽高。这是很合理的，因为最顶层的 View 就应该是屏幕大小。
 
 ### 五、总结
 
-* 子 View 在 `onMeasure` 方法中使用的 `MeasureSpec` 来自父 View，而父 View 的 `MeasureSpec` 来自父 View 的父 View，这是一个链条。之所以子 View 尺寸要受到父 View 的约束，是因为 `MATCH_PARENT` 和 `WRAP_CONTENT` 的存在。如果子 View 的尺寸只能设置为固定的 dp 值，
-
-  那父 View 对子 View 的约束就意义不大了。
-
+* 子 View 在 `onMeasure` 方法中使用的 `MeasureSpec` 来自父 View，而父 View 的 `MeasureSpec` 来自父 View 的父 View，这是一个链条。之所以子 View 尺寸要受到父 View 的约束，是因为 `MATCH_PARENT` 和 `WRAP_CONTENT` 的存在。如果子 View 的尺寸只能设置为固定的 dp 值，那父 View 对子 View 的约束就意义不大了。
 * 子 View 的 `MeasureSpec` 是由子 View 的 `dimension` 和父 View 的 `MeasureSpec` 共同计算得来的。子 View 的 `dimension` 就是子 View 在 xml 中设置的 `android:layout_height/android:layout_width`。注意，`WRAP_CONTENT` 和 `MATCH_PARENT`  也是 `dimension`，是尺寸，不是 `MeasureSpec.MODE`，它们是两个概念，不要弄混，虽然这两者之间有关系。
-
-* 虽然 `MeasureSpec` 中已经包含了尺寸约束信息，但是子 View 仍然需要在 `onMeasure` 中进一步确定子 View 具体应该有多大。比如上文提到的 TextView 的例子。一般来说，自定义 View 是需要自己处理子 View 的 `specMode` 为 `AT_MOST` 的情况的，因为 View 类本身没有处理这个情况，会导致 `WRAP_CONTENT`  失效。
-
-* 在链条最顶端的 `DecorView ` 的 `MeasureSpec` 来自 `ViewRootImpl` 在 `performMeasure` 方法中构造的 `MeasureSpec`。这个 `MeasureSpec` 的 `SIZE`是屏幕宽高，`MODE` 是 `EXACTLY`。
+* 虽然 `MeasureSpec` 中已经包含了尺寸约束信息，但是子 View 仍然需要在 `onMeasure` 中进一步确定子 View 具体应该有多大。比如上文提到的 TextView 的例子。一般来说，自定义 View 是需要自己处理 `specMode` 为 `AT_MOST` 的情况的，因为 View 类本身没有处理这个情况，会导致 `WRAP_CONTENT`  失效。
+* 在链条最顶端的 `DecorView ` 的 `MeasureSpec` 就是 `ViewRootImpl` 在 `performMeasure` 方法中构造的 `MeasureSpec`。这个 `MeasureSpec` 的 `SIZE`是屏幕宽高，`MODE` 是 `EXACTLY`。
