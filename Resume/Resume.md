@@ -17,7 +17,7 @@
 
 ​	基本信息：男 / 1996 	 									  求职意向：Android 研发工程师
 
-​	工作经验：2 年													 期望薪资：20k-25k
+​	工作经验：2 年
 
 ​	Blog：https://ultimatehandsomeboy666.github.io/ 或者 https://juejin.cn/user/413072104102776
 
