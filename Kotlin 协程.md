@@ -27,7 +27,7 @@ context 决定了协程运行在哪个线程上。
 
  <img src="fig/image-20201005193143454.png" alt="image-20201005193143454" style="zoom:50%;" />
 
-CoroutineContext 通过诸如 Dispatchers.Main 等调度器来决定协程运行在哪个线程上，但是，CoroutineContext 不只是一个线程调度器。除了调度器，其他可以视作 CoroutineContext 的东西有 Job`, `Deferred，CoroutineName`, `CoroutineExceptionHandler 等一切实现了 Element 接口的类。
+CoroutineContext 通过诸如 Dispatchers.Main 等调度器来决定协程运行在哪个线程上，但是，CoroutineContext 不只是一个线程调度器。除了调度器，其他可以视作 CoroutineContext 的东西有 `Job`, `Deferred，CoroutineName`, `CoroutineExceptionHandler` 等一切实现了 Element 接口的类。
 
 参考：https://stackoverflow.com/questions/60502591/whats-the-purpose-of-combining-coroutine-contexts-in-kotlin
 
